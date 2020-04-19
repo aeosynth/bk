@@ -160,9 +160,11 @@ impl Bk {
                 }
             }
             KeyCode::Char('n') => {
-                self.pos = 0;
-                self.chapter_idx += 1;
-                self.load_chapter();
+                if self.chapter_idx < self.toc.len() - 1 {
+                    self.pos = 0;
+                    self.chapter_idx += 1;
+                    self.load_chapter();
+                }
             }
             KeyCode::Char('h')
             | KeyCode::Char('k')
@@ -182,8 +184,9 @@ impl Bk {
             | KeyCode::Char('j')
             | KeyCode::Char('l')
             | KeyCode::Char(' ') => {
-                self.pos += self.rows;
-                if self.pos >= self.chapter.len() {
+                if self.pos + self.rows < self.chapter.len() {
+                    self.pos += self.rows;
+                } else if self.chapter_idx < self.toc.len() - 1 {
                     self.chapter_idx += 1;
                     self.load_chapter();
                     self.pos = 0;
