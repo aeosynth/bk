@@ -133,17 +133,20 @@ impl Bk {
                 "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
                     let text = n.descendants().find(|n| n.is_text()).unwrap();
                     chapter.push(format!("# {}", text.text().unwrap()));
+                    chapter.push(String::from(""));
                 }
-                "div" => chapter.push(String::from("")),
-                "p" => chapter.push(
-                    n.descendants()
+                //"div" => chapter.push(String::from("")),
+                "p" => {
+                    chapter.push(n.descendants()
                         .filter(|n| n.is_text())
                         .map(|n| n.text().unwrap())
-                        .collect(),
-                ),
+                        .collect());
+                    chapter.push(String::from(""));
+                }
                 _ => (),
             }
         }
+        chapter.pop();//padding
         self.chapter = wrap(chapter, self.cols - self.pad);
     }
     fn run(&mut self, code: KeyCode) -> bool {
@@ -180,7 +183,7 @@ impl Bk {
             | KeyCode::Char('l')
             | KeyCode::Char(' ') => {
                 self.pos += self.rows;
-                if self.pos > self.chapter.len() {
+                if self.pos >= self.chapter.len() {
                     self.chapter_idx += 1;
                     self.load_chapter();
                     self.pos = 0;
