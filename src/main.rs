@@ -165,9 +165,11 @@ impl Bk {
             | KeyCode::Left
             | KeyCode::Up
             | KeyCode::PageUp => {
-                if self.pos == 0 && self.chapter_idx > 0 {
-                    self.chapter_idx -= 1;
-                    self.load_chapter();
+                if self.pos == 0 {
+                    if self.chapter_idx > 0 {
+                        self.chapter_idx -= 1;
+                        self.load_chapter();
+                    }
                 } else {
                     self.pos -= self.rows;
                 }
