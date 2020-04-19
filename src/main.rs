@@ -17,6 +17,7 @@ struct Bk {
     pos: usize,
     rows: usize,
     toc: Vec<String>,
+    pad: u16,
 }
 
 fn get_toc(container: &mut zip::ZipArchive<File>) -> Vec<String> {
@@ -94,11 +95,12 @@ fn wrap(text: Vec<String>, width: u16) -> Vec<String> {
 
 impl Bk {
     fn new(
-        path: &String,
+        path: &str,
         cols: u16,
         rows: usize,
         chapter_idx: usize,
         pos: usize,
+        pad: u16,
     ) -> Result<Self, std::io::Error> {
         let file = File::open(path)?;
         let mut container = zip::ZipArchive::new(file)?;
@@ -111,6 +113,7 @@ impl Bk {
             rows,
             chapter_idx,
             pos,
+            pad,
         };
         bk.load_chapter();
         Ok(bk)
@@ -141,7 +144,7 @@ impl Bk {
                 _ => (),
             }
         }
-        self.chapter = wrap(chapter, self.cols);
+        self.chapter = wrap(chapter, self.cols - self.pad);
     }
     fn run(&mut self, code: KeyCode) -> bool {
         match code {
@@ -158,7 +161,11 @@ impl Bk {
                 self.chapter_idx += 1;
                 self.load_chapter();
             }
-            KeyCode::Left | KeyCode::Up | KeyCode::PageUp => {
+            KeyCode::Char('h')
+            | KeyCode::Char('k')
+            | KeyCode::Left
+            | KeyCode::Up
+            | KeyCode::PageUp => {
                 if self.pos == 0 && self.chapter_idx > 0 {
                     self.chapter_idx -= 1;
                     self.load_chapter();
@@ -169,6 +176,8 @@ impl Bk {
             KeyCode::Right
             | KeyCode::Down
             | KeyCode::PageDown
+            | KeyCode::Char('j')
+            | KeyCode::Char('l')
             | KeyCode::Char(' ') => {
                 self.pos += self.rows;
                 if self.pos > self.chapter.len() {
@@ -209,7 +218,7 @@ fn main() -> crossterm::Result<()> {
     let (path, chapter, pos) = restore();
     let (cols, rows) = terminal::size().unwrap();
 
-    let mut bk = Bk::new(&path, cols, rows as usize, chapter, pos)
+    let mut bk = Bk::new(&path, cols, rows as usize, chapter, pos, 2)
         .unwrap_or_else(|e| {
             println!("error reading epub: {}", e);
             std::process::exit(1);
@@ -223,7 +232,7 @@ fn main() -> crossterm::Result<()> {
         queue!(
             stdout,
             terminal::Clear(terminal::ClearType::All),
-            cursor::MoveTo(0, 0),
+            cursor::MoveTo(bk.pad, 0),
         )?;
 
         let end = std::cmp::min(bk.pos + bk.rows, bk.chapter.len());
@@ -231,7 +240,8 @@ fn main() -> crossterm::Result<()> {
             queue!(
                 stdout,
                 Print(&bk.chapter[line]),
-                cursor::MoveToNextLine(1)
+                cursor::MoveToNextLine(1),
+                cursor::MoveRight(bk.pad)
             )?;
         }
         stdout.flush()?;
