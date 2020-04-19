@@ -1,0 +1,14 @@
+[package]
+name = "bk"
+version = "0.1.0"
+authors = ["James Campos <james.r.campos@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+crossterm = "0.17"
+roxmltree = "0.10"
+
+[dependencies.zip]
+version = "0.5"
+default-features = false
+features = ["deflate"]
