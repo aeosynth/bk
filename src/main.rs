@@ -31,7 +31,7 @@ fn get_toc(container: &mut zip::ZipArchive<File>) -> Vec<String> {
     let opf_doc = roxmltree::Document::parse(&container_xml).unwrap();
     let opf_path = opf_doc
         .descendants()
-        .find(|n| n.tag_name().name() == "rootfile")
+        .find(|n| n.has_tag_name("rootfile"))
         .unwrap()
         .attribute("full-path")
         .unwrap();
@@ -47,7 +47,7 @@ fn get_toc(container: &mut zip::ZipArchive<File>) -> Vec<String> {
     roxmltree::Document::parse(&opf_xml)
         .unwrap()
         .descendants()
-        .find(|n| n.tag_name().name() == "manifest")
+        .find(|n| n.has_tag_name("manifest"))
         .unwrap()
         .children()
         .filter(|n| {
@@ -131,16 +131,18 @@ impl Bk {
         for n in doc.descendants() {
             match n.tag_name().name() {
                 "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "p" => {
-                    chapter.push(n.descendants()
-                        .filter(|n| n.is_text())
-                        .map(|n| n.text().unwrap())
-                        .collect());
+                    chapter.push(
+                        n.descendants()
+                            .filter(|n| n.is_text())
+                            .map(|n| n.text().unwrap())
+                            .collect(),
+                    );
                     chapter.push(String::from(""));
                 }
                 _ => (),
             }
         }
-        chapter.pop();//padding
+        chapter.pop(); //padding
         self.chapter = wrap(chapter, self.cols - self.pad);
     }
     fn run(&mut self, code: KeyCode) -> bool {
@@ -201,7 +203,7 @@ fn restore(save_path: &str) -> (String, usize, usize) {
 
     if let Some(p) = std::env::args().nth(1) {
         if p != path {
-            return (p, 0, 0)
+            return (p, 0, 0);
         }
     }
     (
@@ -212,8 +214,8 @@ fn restore(save_path: &str) -> (String, usize, usize) {
 }
 
 fn main() -> crossterm::Result<()> {
-    let save_path = format!("{}/.local/share/bk",
-                            std::env::var("HOME").unwrap());
+    let save_path =
+        format!("{}/.local/share/bk", std::env::var("HOME").unwrap());
     let (path, chapter, pos) = restore(&save_path);
     let (cols, rows) = terminal::size().unwrap();
 
