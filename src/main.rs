@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{stdout, Read, Write};
 
@@ -21,46 +22,52 @@ struct Bk {
 }
 
 fn get_toc(container: &mut zip::ZipArchive<File>) -> Vec<String> {
-    // container.xml -> <rootfile> -> opf -> <manifest>
-    let mut container_xml = String::new();
+    // container.xml -> <rootfile> -> opf -> <manifest> + <spine>
+    let mut xml = String::new();
     container
         .by_name("META-INF/container.xml")
         .unwrap()
-        .read_to_string(&mut container_xml)
+        .read_to_string(&mut xml)
         .unwrap();
-    let opf_doc = roxmltree::Document::parse(&container_xml).unwrap();
-    let opf_path = opf_doc
+    let doc = roxmltree::Document::parse(&xml).unwrap();
+    let path = doc
         .descendants()
         .find(|n| n.has_tag_name("rootfile"))
         .unwrap()
         .attribute("full-path")
         .unwrap();
 
-    let mut opf_xml = String::new();
+    let mut xml = String::new();
     container
-        .by_name(opf_path)
+        .by_name(path)
         .unwrap()
-        .read_to_string(&mut opf_xml)
+        .read_to_string(&mut xml)
         .unwrap();
-
-    let parent_path = std::path::Path::new(&opf_path).parent().unwrap();
-    roxmltree::Document::parse(&opf_xml)
-        .unwrap()
-        .descendants()
+    let doc = roxmltree::Document::parse(&xml).unwrap();
+    let mut manifest = HashMap::new();
+    doc.root_element()
+        .children()
         .find(|n| n.has_tag_name("manifest"))
         .unwrap()
         .children()
-        .filter(|n| {
-            n.is_element()
-                && n.attribute("media-type").unwrap()
-                    == "application/xhtml+xml"
-        })
+        .filter(|n| n.is_element())
+        .for_each(|n| {
+            manifest.insert(
+                n.attribute("id").unwrap(),
+                n.attribute("href").unwrap(),
+            );
+        });
+
+    let path = std::path::Path::new(&path).parent().unwrap();
+    doc.root_element()
+        .children()
+        .find(|n| n.has_tag_name("spine"))
+        .unwrap()
+        .children()
+        .filter(|n| n.is_element())
         .map(|n| {
-            parent_path
-                .join(n.attribute("href").unwrap())
-                .to_str()
-                .unwrap()
-                .to_string()
+            let name = manifest.get(n.attribute("idref").unwrap()).unwrap();
+            path.join(name).to_str().unwrap().to_string()
         })
         .collect()
 }
