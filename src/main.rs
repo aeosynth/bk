@@ -198,19 +198,14 @@ impl Bk {
     }
 }
 
-fn save_path() -> String {
-    let home = std::env::var("HOME").unwrap();
-    format!("{}/.local/share/bk", home)
-}
-
-fn restore() -> (String, usize, usize) {
-    let save = std::fs::read_to_string(save_path()).unwrap();
+fn restore(save_path: &str) -> (String, usize, usize) {
+    let save = std::fs::read_to_string(save_path).unwrap();
     let mut lines = save.lines();
     let path = lines.next().unwrap().to_string();
 
     if let Some(p) = std::env::args().nth(1) {
         if p != path {
-            return (p, 0, 0);
+            return (p, 0, 0)
         }
     }
     (
@@ -221,7 +216,9 @@ fn restore() -> (String, usize, usize) {
 }
 
 fn main() -> crossterm::Result<()> {
-    let (path, chapter, pos) = restore();
+    let save_path = format!("{}/.local/share/bk",
+                            std::env::var("HOME").unwrap());
+    let (path, chapter, pos) = restore(&save_path);
     let (cols, rows) = terminal::size().unwrap();
 
     let mut bk = Bk::new(&path, cols, rows as usize, chapter, pos, 2)
@@ -260,7 +257,7 @@ fn main() -> crossterm::Result<()> {
     }
 
     std::fs::write(
-        save_path(),
+        save_path,
         format!("{}\n{}\n{}", path, bk.chapter_idx, bk.pos),
     )
     .unwrap();
