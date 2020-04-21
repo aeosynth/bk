@@ -6,7 +6,7 @@ use crossterm::{
     cursor,
     event::{read, Event, KeyCode, KeyEvent},
     queue,
-    style::Print,
+    style::{Attribute, Print},
     terminal,
 };
 
@@ -137,7 +137,21 @@ impl Bk {
         let mut chapter = Vec::new();
         for n in doc.descendants() {
             match n.tag_name().name() {
-                "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "p" => {
+                "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                    let text: String = n
+                        .descendants()
+                        .filter(|n| n.is_text())
+                        .map(|n| n.text().unwrap())
+                        .collect();
+                    chapter.push(format!(
+                        "{}{}{}",
+                        Attribute::Bold,
+                        text,
+                        Attribute::Reset
+                    ));
+                    chapter.push(String::from(""));
+                }
+                "p" => {
                     chapter.push(
                         n.descendants()
                             .filter(|n| n.is_text())
