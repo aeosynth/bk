@@ -127,20 +127,20 @@ impl Bk {
         let toc = epub.get_toc();
         let mut bk = Bk {
             chapter: Vec::new(),
-            epub,
             chapter_idx,
+            epub,
             pos,
             pad,
             cols,
             toc,
             rows: rows as usize,
         };
-        bk.load_chapter();
+        bk.get_chapter(chapter_idx);
         Ok(bk)
     }
-    fn load_chapter(&mut self) {
+    fn get_chapter(&mut self, idx: usize) {
         let mut chapter = Vec::new();
-        let xml = self.epub.get_text(&self.toc[self.chapter_idx]);
+        let xml = self.epub.get_text(&self.toc[idx]);
         let doc = Document::parse(&xml).unwrap();
 
         for n in doc.descendants() {
@@ -172,56 +172,85 @@ impl Bk {
             }
         }
         chapter.pop(); //padding
-        self.chapter = wrap(chapter, self.cols - self.pad);
+        self.chapter = wrap(chapter, self.cols - (self.pad * 2));
+        self.chapter_idx = idx;
     }
     fn run(&mut self, code: KeyCode) -> bool {
         match code {
             KeyCode::Char('q') => return true,
             KeyCode::Char('p') => {
                 if self.chapter_idx > 0 {
+                    self.get_chapter(self.chapter_idx - 1);
                     self.pos = 0;
-                    self.chapter_idx -= 1;
-                    self.load_chapter();
                 }
             }
             KeyCode::Char('n') => {
                 if self.chapter_idx < self.toc.len() - 1 {
+                    self.get_chapter(self.chapter_idx + 1);
                     self.pos = 0;
-                    self.chapter_idx += 1;
-                    self.load_chapter();
                 }
             }
-            KeyCode::Char('h')
-            | KeyCode::Char('k')
-            | KeyCode::Left
-            | KeyCode::Up
-            | KeyCode::PageUp => {
-                if self.pos == 0 {
-                    if self.chapter_idx > 0 {
-                        self.chapter_idx -= 1;
-                        self.load_chapter();
-                    }
-                } else {
+            KeyCode::Up
+            | KeyCode::Char('k') => {
+                if self.pos > 0 {
+                    self.pos -= 1;
+                } else if self.chapter_idx > 0 {
+                    self.get_chapter(self.chapter_idx - 1);
+                    self.pos = (self.chapter.len() / self.rows) * self.rows;
+                }
+            }
+            KeyCode::Left
+            | KeyCode::PageUp
+            | KeyCode::Char('h') => {
+                if self.pos > 0 {
                     self.pos -= self.rows;
+                } else if self.chapter_idx > 0 {
+                    self.get_chapter(self.chapter_idx - 1);
+                    self.pos = (self.chapter.len() / self.rows) * self.rows;
+                }
+            }
+            KeyCode::Down
+            | KeyCode::Char('j') => {
+                if self.pos < self.chapter.len() - 1 {
+                    self.pos += 1;
+                } else if self.chapter_idx < self.toc.len() - 1 {
+                    self.get_chapter(self.chapter_idx + 1);
+                    self.pos = 0;
                 }
             }
             KeyCode::Right
-            | KeyCode::Down
             | KeyCode::PageDown
-            | KeyCode::Char('j')
             | KeyCode::Char('l')
             | KeyCode::Char(' ') => {
                 if self.pos + self.rows < self.chapter.len() {
                     self.pos += self.rows;
                 } else if self.chapter_idx < self.toc.len() - 1 {
-                    self.chapter_idx += 1;
-                    self.load_chapter();
+                    self.get_chapter(self.chapter_idx + 1);
                     self.pos = 0;
                 }
             }
             _ => (),
         }
         false
+    }
+    fn render(&self) {
+        let mut stdout = stdout();
+        queue!(
+            stdout,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(self.pad, 0),
+        ).unwrap();
+
+        let end = std::cmp::min(self.pos + self.rows, self.chapter.len());
+        for line in self.pos..end {
+            queue!(
+                stdout,
+                Print(&self.chapter[line]),
+                cursor::MoveToNextLine(1),
+                cursor::MoveRight(self.pad)
+            ).unwrap();
+        }
+        stdout.flush().unwrap();
     }
 }
 
@@ -257,23 +286,7 @@ fn main() -> crossterm::Result<()> {
     terminal::enable_raw_mode()?;
 
     loop {
-        queue!(
-            stdout,
-            terminal::Clear(terminal::ClearType::All),
-            cursor::MoveTo(bk.pad, 0),
-        )?;
-
-        let end = std::cmp::min(bk.pos + bk.rows, bk.chapter.len());
-        for line in bk.pos..end {
-            queue!(
-                stdout,
-                Print(&bk.chapter[line]),
-                cursor::MoveToNextLine(1),
-                cursor::MoveRight(bk.pad)
-            )?;
-        }
-        stdout.flush()?;
-
+        bk.render();
         if let Event::Key(KeyEvent { code, .. }) = read()? {
             if bk.run(code) {
                 break;
