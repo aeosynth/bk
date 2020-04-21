@@ -202,11 +202,7 @@ impl Bk {
             | KeyCode::PageUp
             | KeyCode::Char('h') => {
                 if self.pos > 0 {
-                    if self.pos < self.rows {
-                        self.pos = 0;
-                    } else {
-                        self.pos -= self.rows;
-                    }
+                    self.pos = self.pos.saturating_sub(self.rows);
                 } else if self.chapter_idx > 0 {
                     self.get_chapter(self.chapter_idx - 1);
                     self.pos = (self.chapter.len() / self.rows) * self.rows;
