@@ -124,15 +124,14 @@ impl Bk {
     ) -> Result<Self, Error> {
         let (cols, rows) = terminal::size().unwrap();
         let mut epub = Epub::new(path)?;
-        let toc = epub.get_toc();
         let mut bk = Bk {
             chapter: Vec::new(),
             chapter_idx,
+            toc: epub.get_toc(),
             epub,
             pos,
             pad,
             cols,
-            toc,
             rows: rows as usize,
         };
         bk.get_chapter(chapter_idx);
@@ -203,7 +202,11 @@ impl Bk {
             | KeyCode::PageUp
             | KeyCode::Char('h') => {
                 if self.pos > 0 {
-                    self.pos -= self.rows;
+                    if self.pos < self.rows {
+                        self.pos = 0;
+                    } else {
+                        self.pos -= self.rows;
+                    }
                 } else if self.chapter_idx > 0 {
                     self.get_chapter(self.chapter_idx - 1);
                     self.pos = (self.chapter.len() / self.rows) * self.rows;
