@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{stdout, Read, Write};
+use std::io::{stdout, Error, Read, Write};
 
 use crossterm::{
     cursor,
@@ -10,66 +10,81 @@ use crossterm::{
     terminal,
 };
 
+use roxmltree::Document;
+
+struct Epub {
+    container: zip::ZipArchive<File>,
+}
+
 struct Bk {
+    epub: Epub,
     cols: u16,
     chapter: Vec<String>,
     chapter_idx: usize,
-    container: zip::ZipArchive<File>,
     pos: usize,
     rows: usize,
     toc: Vec<String>,
     pad: u16,
 }
 
-fn get_toc(container: &mut zip::ZipArchive<File>) -> Vec<String> {
-    // container.xml -> <rootfile> -> opf -> <manifest> + <spine>
-    let mut xml = String::new();
-    container
-        .by_name("META-INF/container.xml")
-        .unwrap()
-        .read_to_string(&mut xml)
-        .unwrap();
-    let doc = roxmltree::Document::parse(&xml).unwrap();
-    let path = doc
-        .descendants()
-        .find(|n| n.has_tag_name("rootfile"))
-        .unwrap()
-        .attribute("full-path")
-        .unwrap();
+impl Epub {
+    fn new(path: &str) -> Result<Self, Error> {
+        let file = File::open(path)?;
 
-    let mut xml = String::new();
-    container
-        .by_name(path)
-        .unwrap()
-        .read_to_string(&mut xml)
-        .unwrap();
-    let doc = roxmltree::Document::parse(&xml).unwrap();
-    let mut manifest = HashMap::new();
-    doc.root_element()
-        .children()
-        .find(|n| n.has_tag_name("manifest"))
-        .unwrap()
-        .children()
-        .filter(|n| n.is_element())
-        .for_each(|n| {
-            manifest.insert(
-                n.attribute("id").unwrap(),
-                n.attribute("href").unwrap(),
-            );
-        });
-
-    let path = std::path::Path::new(&path).parent().unwrap();
-    doc.root_element()
-        .children()
-        .find(|n| n.has_tag_name("spine"))
-        .unwrap()
-        .children()
-        .filter(|n| n.is_element())
-        .map(|n| {
-            let name = manifest.get(n.attribute("idref").unwrap()).unwrap();
-            path.join(name).to_str().unwrap().to_string()
+        Ok(Epub {
+            container: zip::ZipArchive::new(file)?,
         })
-        .collect()
+    }
+    fn get_text(&mut self, name: &str) -> String {
+        let mut text = String::new();
+        self.container
+            .by_name(name)
+            .unwrap()
+            .read_to_string(&mut text)
+            .unwrap();
+        text
+    }
+    fn get_toc(&mut self) -> Vec<String> {
+        // container.xml -> <rootfile> -> opf -> <spine> -> <manifest>
+        let xml = self.get_text("META-INF/container.xml");
+        let doc = Document::parse(&xml).unwrap();
+        let path = doc
+            .descendants()
+            .find(|n| n.has_tag_name("rootfile"))
+            .unwrap()
+            .attribute("full-path")
+            .unwrap();
+
+        let mut manifest = HashMap::new();
+        let xml = self.get_text(path);
+        let doc = Document::parse(&xml).unwrap();
+        doc.root_element()
+            .children()
+            .find(|n| n.has_tag_name("manifest"))
+            .unwrap()
+            .children()
+            .filter(|n| n.is_element())
+            .for_each(|n| {
+                manifest.insert(
+                    n.attribute("id").unwrap(),
+                    n.attribute("href").unwrap(),
+                );
+            });
+
+        let path = std::path::Path::new(&path).parent().unwrap();
+        doc.root_element()
+            .children()
+            .find(|n| n.has_tag_name("spine"))
+            .unwrap()
+            .children()
+            .filter(|n| n.is_element())
+            .map(|n| {
+                let name =
+                    manifest.get(n.attribute("idref").unwrap()).unwrap();
+                path.join(name).to_str().unwrap().to_string()
+            })
+            .collect()
+    }
 }
 
 fn wrap(text: Vec<String>, width: u16) -> Vec<String> {
@@ -103,38 +118,31 @@ fn wrap(text: Vec<String>, width: u16) -> Vec<String> {
 impl Bk {
     fn new(
         path: &str,
-        cols: u16,
-        rows: usize,
         chapter_idx: usize,
         pos: usize,
         pad: u16,
-    ) -> Result<Self, std::io::Error> {
-        let file = File::open(path)?;
-        let mut container = zip::ZipArchive::new(file)?;
-        let toc = get_toc(&mut container);
+    ) -> Result<Self, Error> {
+        let (cols, rows) = terminal::size().unwrap();
+        let mut epub = Epub::new(path)?;
+        let toc = epub.get_toc();
         let mut bk = Bk {
             chapter: Vec::new(),
-            container,
-            toc,
-            cols,
-            rows,
+            epub,
             chapter_idx,
             pos,
             pad,
+            cols,
+            toc,
+            rows: rows as usize,
         };
         bk.load_chapter();
         Ok(bk)
     }
     fn load_chapter(&mut self) {
-        let mut text = String::new();
-        self.container
-            .by_name(&self.toc[self.chapter_idx])
-            .unwrap()
-            .read_to_string(&mut text)
-            .unwrap();
-        let doc = roxmltree::Document::parse(&text).unwrap();
-
         let mut chapter = Vec::new();
+        let xml = self.epub.get_text(&self.toc[self.chapter_idx]);
+        let doc = Document::parse(&xml).unwrap();
+
         for n in doc.descendants() {
             match n.tag_name().name() {
                 "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
@@ -238,13 +246,11 @@ fn main() -> crossterm::Result<()> {
     let save_path =
         format!("{}/.local/share/bk", std::env::var("HOME").unwrap());
     let (path, chapter, pos) = restore(&save_path);
-    let (cols, rows) = terminal::size().unwrap();
 
-    let mut bk = Bk::new(&path, cols, rows as usize, chapter, pos, 2)
-        .unwrap_or_else(|e| {
-            println!("error reading epub: {}", e);
-            std::process::exit(1);
-        });
+    let mut bk = Bk::new(&path, chapter, pos, 2).unwrap_or_else(|e| {
+        println!("error reading epub: {}", e);
+        std::process::exit(1);
+    });
 
     let mut stdout = stdout();
     queue!(stdout, terminal::EnterAlternateScreen, cursor::Hide)?;
