@@ -189,8 +189,7 @@ impl Bk {
                     self.pos = 0;
                 }
             }
-            KeyCode::Up
-            | KeyCode::Char('k') => {
+            KeyCode::Up | KeyCode::Char('k') => {
                 if self.pos > 0 {
                     self.pos -= 1;
                 } else if self.chapter_idx > 0 {
@@ -198,9 +197,7 @@ impl Bk {
                     self.pos = (self.chapter.len() / self.rows) * self.rows;
                 }
             }
-            KeyCode::Left
-            | KeyCode::PageUp
-            | KeyCode::Char('h') => {
+            KeyCode::Left | KeyCode::PageUp | KeyCode::Char('h') => {
                 if self.pos > 0 {
                     self.pos = self.pos.saturating_sub(self.rows);
                 } else if self.chapter_idx > 0 {
@@ -208,8 +205,7 @@ impl Bk {
                     self.pos = (self.chapter.len() / self.rows) * self.rows;
                 }
             }
-            KeyCode::Down
-            | KeyCode::Char('j') => {
+            KeyCode::Down | KeyCode::Char('j') => {
                 if self.pos < self.chapter.len() - 1 {
                     self.pos += 1;
                 } else if self.chapter_idx < self.toc.len() - 1 {
@@ -238,7 +234,8 @@ impl Bk {
             stdout,
             terminal::Clear(terminal::ClearType::All),
             cursor::MoveTo(self.pad, 0),
-        ).unwrap();
+        )
+        .unwrap();
 
         let end = std::cmp::min(self.pos + self.rows, self.chapter.len());
         for line in self.pos..end {
@@ -247,33 +244,48 @@ impl Bk {
                 Print(&self.chapter[line]),
                 cursor::MoveToNextLine(1),
                 cursor::MoveRight(self.pad)
-            ).unwrap();
+            )
+            .unwrap();
         }
         stdout.flush().unwrap();
     }
 }
 
-fn restore(save_path: &str) -> (String, usize, usize) {
-    let save = std::fs::read_to_string(save_path).unwrap();
-    let mut lines = save.lines();
-    let path = lines.next().unwrap().to_string();
+fn restore() -> Option<(String, usize, usize)> {
+    let path = std::env::args().nth(1);
+    let save_path =
+        format!("{}/.local/share/bk", std::env::var("HOME").unwrap());
+    let save = std::fs::read_to_string(save_path);
 
-    if let Some(p) = std::env::args().nth(1) {
-        if p != path {
-            return (p, 0, 0);
+    let get_save = |s: String| {
+        let mut lines = s.lines();
+        (
+            lines.next().unwrap().to_string(),
+            lines.next().unwrap().parse::<usize>().unwrap(),
+            lines.next().unwrap().parse::<usize>().unwrap(),
+        )
+    };
+
+    match (save, path) {
+        (Err(_), None) => None,
+        (Err(_), Some(path)) => Some((path, 0, 0)),
+        (Ok(save), None) => Some(get_save(save)),
+        (Ok(save), Some(path)) => {
+            let save = get_save(save);
+            if save.0 == path {
+                Some(save)
+            } else {
+                Some((path, 0, 0))
+            }
         }
     }
-    (
-        path,
-        lines.next().unwrap().to_string().parse::<usize>().unwrap(),
-        lines.next().unwrap().to_string().parse::<usize>().unwrap(),
-    )
 }
 
 fn main() -> crossterm::Result<()> {
-    let save_path =
-        format!("{}/.local/share/bk", std::env::var("HOME").unwrap());
-    let (path, chapter, pos) = restore(&save_path);
+    let (path, chapter, pos) = restore().unwrap_or_else(|| {
+        println!("usage: bk path");
+        std::process::exit(1);
+    });
 
     let mut bk = Bk::new(&path, chapter, pos, 2).unwrap_or_else(|e| {
         println!("error reading epub: {}", e);
@@ -294,7 +306,7 @@ fn main() -> crossterm::Result<()> {
     }
 
     std::fs::write(
-        save_path,
+        format!("{}/.local/share/bk", std::env::var("HOME").unwrap()),
         format!("{}\n{}\n{}", path, bk.chapter_idx, bk.pos),
     )
     .unwrap();
