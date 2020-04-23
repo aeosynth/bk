@@ -4,7 +4,10 @@ use std::io::{stdout, Error, Read, Write};
 
 use crossterm::{
     cursor,
-    event::{read, Event, KeyCode, KeyEvent},
+    event::{
+        read, DisableMouseCapture, EnableMouseCapture, Event, KeyCode,
+        MouseEvent,
+    },
     queue,
     style::{Attribute, Print},
     terminal,
@@ -174,57 +177,65 @@ impl Bk {
         self.chapter = wrap(chapter, self.cols - (self.pad * 2));
         self.chapter_idx = idx;
     }
-    fn run(&mut self, code: KeyCode) -> bool {
-        match code {
-            KeyCode::Char('q') => return true,
-            KeyCode::Char('p') => {
-                if self.chapter_idx > 0 {
-                    self.get_chapter(self.chapter_idx - 1);
-                    self.pos = 0;
+    fn scroll_down(&mut self, n: usize) {
+        if self.rows < self.chapter.len() - self.pos {
+            self.pos += n;
+        } else if self.chapter_idx < self.toc.len() - 1 {
+            self.get_chapter(self.chapter_idx + 1);
+            self.pos = 0;
+        }
+    }
+    fn scroll_up(&mut self, n: usize) {
+        if self.pos > 0 {
+            self.pos = self.pos.saturating_sub(n);
+        } else if self.chapter_idx > 0 {
+            self.get_chapter(self.chapter_idx - 1);
+            self.pos = (self.chapter.len() / self.rows) * self.rows;
+        }
+    }
+    fn run(&mut self, event: Event) -> bool {
+        match event {
+            Event::Key(e) => match e.code {
+                KeyCode::Char('q') => return true,
+                KeyCode::Char('p') => {
+                    if self.chapter_idx > 0 {
+                        self.get_chapter(self.chapter_idx - 1);
+                        self.pos = 0;
+                    }
                 }
-            }
-            KeyCode::Char('n') => {
-                if self.chapter_idx < self.toc.len() - 1 {
-                    self.get_chapter(self.chapter_idx + 1);
-                    self.pos = 0;
+                KeyCode::Char('n') => {
+                    if self.chapter_idx < self.toc.len() - 1 {
+                        self.get_chapter(self.chapter_idx + 1);
+                        self.pos = 0;
+                    }
                 }
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.pos > 0 {
-                    self.pos -= 1;
-                } else if self.chapter_idx > 0 {
-                    self.get_chapter(self.chapter_idx - 1);
-                    self.pos = (self.chapter.len() / self.rows) * self.rows;
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.scroll_up(1);
                 }
-            }
-            KeyCode::Left | KeyCode::PageUp | KeyCode::Char('h') => {
-                if self.pos > 0 {
-                    self.pos = self.pos.saturating_sub(self.rows);
-                } else if self.chapter_idx > 0 {
-                    self.get_chapter(self.chapter_idx - 1);
-                    self.pos = (self.chapter.len() / self.rows) * self.rows;
+                KeyCode::Left | KeyCode::PageUp | KeyCode::Char('h') => {
+                    self.scroll_up(self.rows);
                 }
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.pos < self.chapter.len() - 1 {
-                    self.pos += 1;
-                } else if self.chapter_idx < self.toc.len() - 1 {
-                    self.get_chapter(self.chapter_idx + 1);
-                    self.pos = 0;
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.scroll_down(1);
                 }
-            }
-            KeyCode::Right
-            | KeyCode::PageDown
-            | KeyCode::Char('l')
-            | KeyCode::Char(' ') => {
-                if self.pos + self.rows < self.chapter.len() {
-                    self.pos += self.rows;
-                } else if self.chapter_idx < self.toc.len() - 1 {
-                    self.get_chapter(self.chapter_idx + 1);
-                    self.pos = 0;
+                KeyCode::Right
+                | KeyCode::PageDown
+                | KeyCode::Char('l')
+                | KeyCode::Char(' ') => {
+                    self.scroll_down(self.rows);
                 }
+                _ => (),
+            },
+            Event::Mouse(e) => match e {
+                MouseEvent::ScrollDown(_, _, _) => self.scroll_down(3),
+                MouseEvent::ScrollUp(_, _, _) => self.scroll_up(3),
+                _ => (),
+            },
+            Event::Resize(cols, rows) => {
+                self.cols = cols;
+                self.rows = rows as usize;
+                self.get_chapter(self.chapter_idx);
             }
-            _ => (),
         }
         false
     }
@@ -293,15 +304,18 @@ fn main() -> crossterm::Result<()> {
     });
 
     let mut stdout = stdout();
-    queue!(stdout, terminal::EnterAlternateScreen, cursor::Hide)?;
+    queue!(
+        stdout,
+        terminal::EnterAlternateScreen,
+        cursor::Hide,
+        EnableMouseCapture
+    )?;
     terminal::enable_raw_mode()?;
 
     loop {
         bk.render();
-        if let Event::Key(KeyEvent { code, .. }) = read()? {
-            if bk.run(code) {
-                break;
-            }
+        if bk.run(read()?) {
+            break;
         }
     }
 
@@ -310,7 +324,12 @@ fn main() -> crossterm::Result<()> {
         format!("{}\n{}\n{}", path, bk.chapter_idx, bk.pos),
     )
     .unwrap();
-    queue!(stdout, terminal::LeaveAlternateScreen, cursor::Show)?;
+    queue!(
+        stdout,
+        terminal::LeaveAlternateScreen,
+        cursor::Show,
+        DisableMouseCapture
+    )?;
     stdout.flush()?;
     terminal::disable_raw_mode()
 }
