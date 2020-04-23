@@ -15,11 +15,18 @@ use crossterm::{
 
 use roxmltree::Document;
 
+enum Mode {
+    Help,
+    Nav,
+    Read,
+}
+
 struct Epub {
     container: zip::ZipArchive<File>,
 }
 
 struct Bk {
+    mode: Mode,
     epub: Epub,
     cols: u16,
     chapter: Vec<String>,
@@ -130,6 +137,7 @@ impl Bk {
         let (cols, rows) = terminal::size().unwrap();
         let mut epub = Epub::new(path)?;
         let mut bk = Bk {
+            mode: Mode::Read,
             chapter: Vec::new(),
             chapter_idx,
             toc: epub.get_toc(),
@@ -195,10 +203,25 @@ impl Bk {
             self.pos = (self.chapter.len() / self.rows) * self.rows;
         }
     }
-    fn run(&mut self, event: Event) -> bool {
-        match event {
+    fn run(&mut self, e: Event) -> bool {
+        match self.mode {
+            Mode::Read => return self.run_read(e),
+            Mode::Nav => self.run_nav(e),
+            Mode::Help => self.mode = Mode::Read,
+        }
+        true
+    }
+    fn run_nav(&mut self, e: Event) {
+        match e {
+            _ => self.mode = Mode::Read
+        }
+    }
+    fn run_read(&mut self, e: Event) -> bool {
+        match e {
             Event::Key(e) => match e.code {
-                KeyCode::Char('q') => return true,
+                KeyCode::Char('q') => return false,
+                KeyCode::Tab => self.mode = Mode::Nav,
+                KeyCode::Char('?') => self.mode = Mode::Help,
                 KeyCode::Char('p') => {
                     if self.chapter_idx > 0 {
                         self.get_chapter(self.chapter_idx - 1);
@@ -239,9 +262,36 @@ impl Bk {
                 self.get_chapter(self.chapter_idx);
             }
         }
-        false
+        true
     }
     fn render(&self) {
+        match self.mode {
+            Mode::Read => self.render_read(),
+            Mode::Help => self.render_help(),
+            Mode::Nav => self.render_nav(),
+        }
+    }
+    fn render_nav(&self) {
+        let mut stdout = stdout();
+        queue!(
+            stdout,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, 0),
+            Print("TODO: nav")
+            ).unwrap();
+        stdout.flush().unwrap();
+    }
+    fn render_help(&self) {
+        let mut stdout = stdout();
+        queue!(
+            stdout,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, 0),
+            Print("TODO: help text")
+            ).unwrap();
+        stdout.flush().unwrap();
+    }
+    fn render_read(&self) {
         let mut stdout = stdout();
         queue!(
             stdout,
@@ -314,11 +364,9 @@ fn main() -> crossterm::Result<()> {
     )?;
     terminal::enable_raw_mode()?;
 
-    loop {
+    bk.render();
+    while bk.run(read()?) {
         bk.render();
-        if bk.run(read()?) {
-            break;
-        }
     }
 
     std::fs::write(
