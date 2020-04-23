@@ -101,16 +101,18 @@ fn wrap(text: Vec<String>, width: u16) -> Vec<String> {
         let mut word = 0;
 
         for (i, c) in chunk.char_indices() {
-            line += 1;
-            word += 1;
             if c == ' ' {
                 space = i;
                 word = 0;
+            } else {
+                word += 1;
             }
             if line == width {
                 wrapped.push(String::from(&chunk[start..space]));
                 start = space + 1;
                 line = word;
+            } else {
+                line += 1;
             }
         }
         wrapped.push(String::from(&chunk[start..]));
