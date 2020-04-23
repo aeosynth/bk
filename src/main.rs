@@ -213,13 +213,13 @@ impl Bk {
     }
     fn run_nav(&mut self, e: Event) {
         match e {
-            _ => self.mode = Mode::Read
+            _ => self.mode = Mode::Read,
         }
     }
     fn run_read(&mut self, e: Event) -> bool {
         match e {
             Event::Key(e) => match e.code {
-                KeyCode::Char('q') => return false,
+                KeyCode::Esc | KeyCode::Char('q') => return false,
                 KeyCode::Tab => self.mode = Mode::Nav,
                 KeyCode::Char('?') => self.mode = Mode::Help,
                 KeyCode::Char('p') => {
@@ -234,10 +234,23 @@ impl Bk {
                         self.pos = 0;
                     }
                 }
+                KeyCode::End | KeyCode::Char('G') => {
+                    self.pos = (self.chapter.len() / self.rows) * self.rows;
+                }
+                KeyCode::Home | KeyCode::Char('g') => self.pos = 0,
+                KeyCode::Char('d') => {
+                    self.scroll_down(self.rows / 2);
+                }
+                KeyCode::Char('u') => {
+                    self.scroll_up(self.rows / 2);
+                }
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.scroll_up(1);
                 }
-                KeyCode::Left | KeyCode::PageUp | KeyCode::Char('h') => {
+                KeyCode::Left
+                | KeyCode::PageUp
+                | KeyCode::Char('b')
+                | KeyCode::Char('h') => {
                     self.scroll_up(self.rows);
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
@@ -245,6 +258,7 @@ impl Bk {
                 }
                 KeyCode::Right
                 | KeyCode::PageDown
+                | KeyCode::Char('f')
                 | KeyCode::Char('l')
                 | KeyCode::Char(' ') => {
                     self.scroll_down(self.rows);
@@ -278,7 +292,8 @@ impl Bk {
             terminal::Clear(terminal::ClearType::All),
             cursor::MoveTo(0, 0),
             Print("TODO: nav")
-            ).unwrap();
+        )
+        .unwrap();
         stdout.flush().unwrap();
     }
     fn render_help(&self) {
@@ -288,7 +303,8 @@ impl Bk {
             terminal::Clear(terminal::ClearType::All),
             cursor::MoveTo(0, 0),
             Print("TODO: help text")
-            ).unwrap();
+        )
+        .unwrap();
         stdout.flush().unwrap();
     }
     fn render_read(&self) {
