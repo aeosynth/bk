@@ -33,7 +33,7 @@ struct Bk {
     chapter_idx: usize,
     pos: usize,
     rows: usize,
-    toc: Vec<String>,
+    toc: Vec<(String, String)>,
     pad: u16,
 }
 
@@ -54,8 +54,7 @@ impl Epub {
             .unwrap();
         text
     }
-    fn get_toc(&mut self) -> Vec<String> {
-        // container.xml -> <rootfile> -> opf -> <spine> -> <manifest>
+    fn get_toc(&mut self) -> Vec<(String, String)> {
         let xml = self.get_text("META-INF/container.xml");
         let doc = Document::parse(&xml).unwrap();
         let path = doc
@@ -65,7 +64,8 @@ impl Epub {
             .attribute("full-path")
             .unwrap();
 
-        let mut manifest = HashMap::new();
+        // in theory the toc is enough, in reality it isn't
+        let mut id_path = HashMap::new();
         let xml = self.get_text(path);
         let doc = Document::parse(&xml).unwrap();
         doc.root_element()
@@ -75,25 +75,68 @@ impl Epub {
             .children()
             .filter(|n| n.is_element())
             .for_each(|n| {
-                manifest.insert(
+                id_path.insert(
                     n.attribute("id").unwrap(),
                     n.attribute("href").unwrap(),
                 );
             });
-
-        let path = std::path::Path::new(&path).parent().unwrap();
-        doc.root_element()
+        let dirname = std::path::Path::new(&path).parent().unwrap();
+        let paths: Vec<&str> = doc.root_element()
             .children()
             .find(|n| n.has_tag_name("spine"))
             .unwrap()
             .children()
             .filter(|n| n.is_element())
-            .map(|n| {
-                let name =
-                    manifest.get(n.attribute("idref").unwrap()).unwrap();
-                path.join(name).to_str().unwrap().to_string()
-            })
-            .collect()
+            .map(|n| id_path.remove(n.attribute("idref").unwrap()).unwrap())
+            .collect();
+
+        // epub2: item id="ncx" (spine toc=id)
+        // epub3: item properties="nav"
+        let titles: Vec<String> = {
+            if let Some(path) = id_path.get("ncx") {
+                let xml = self.get_text(dirname.join(path).to_str().unwrap());
+                let doc = Document::parse(&xml).unwrap();
+
+                doc.descendants()
+                    .find(|n| n.has_tag_name("navMap"))
+                    .unwrap()
+                    .descendants()
+                    .filter(|n| n.has_tag_name("navPoint"))
+                    .map(|n| n.descendants()
+                        .find(|n| n.has_tag_name("text"))
+                        .unwrap()
+                        .text()
+                        .unwrap()
+                        .to_string()
+                    )
+                    .collect()
+            } else if let Some(path) = id_path.get("toc.xhtml") {
+                let xml = self.get_text(dirname.join(path).to_str().unwrap());
+                let doc = Document::parse(&xml).unwrap();
+
+                doc.descendants()
+                    .find(|n| n.has_tag_name("nav"))
+                    .unwrap()
+                    .descendants()
+                    .filter(|n| n.has_tag_name("a"))
+                    .map(|n| {
+                        n.descendants()
+                            .filter(|n| n.is_text())
+                            .map(|n| n.text().unwrap())
+                            .collect()
+                    })
+                    .collect()
+            } else {
+                panic!("can't read epub");
+            }
+        };
+
+        paths.into_iter().enumerate().map(|(i, path)| {
+            let title = titles.get(i).unwrap_or(&path.to_string()).to_string();
+            let path = dirname.join(path).to_str().unwrap().to_string();
+            (title, path)
+        })
+        .collect()
     }
 }
 
@@ -152,7 +195,7 @@ impl Bk {
     }
     fn get_chapter(&mut self, idx: usize) {
         let mut chapter = Vec::new();
-        let xml = self.epub.get_text(&self.toc[idx]);
+        let xml = self.epub.get_text(&self.toc[idx].1);
         let doc = Document::parse(&xml).unwrap();
 
         for n in doc.descendants() {
@@ -290,10 +333,12 @@ impl Bk {
         queue!(
             stdout,
             terminal::Clear(terminal::ClearType::All),
-            cursor::MoveTo(0, 0),
-            Print("TODO: nav")
         )
         .unwrap();
+        let end = std::cmp::min(self.rows, self.toc.len());
+        for i in 0..end {
+            queue!(stdout, cursor::MoveTo(0, i as u16), Print(&self.toc[i].0)).unwrap();
+        }
         stdout.flush().unwrap();
     }
     fn render_help(&self) {
