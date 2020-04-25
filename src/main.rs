@@ -79,7 +79,8 @@ impl Epub {
                 );
             });
         let dirname = std::path::Path::new(&path).parent().unwrap();
-        let paths: Vec<&str> = doc.root_element()
+        let paths: Vec<&str> = doc
+            .root_element()
             .children()
             .find(|n| n.has_tag_name("spine"))
             .unwrap()
@@ -100,13 +101,14 @@ impl Epub {
                     .unwrap()
                     .descendants()
                     .filter(|n| n.has_tag_name("navPoint"))
-                    .map(|n| n.descendants()
-                        .find(|n| n.has_tag_name("text"))
-                        .unwrap()
-                        .text()
-                        .unwrap()
-                        .to_string()
-                    )
+                    .map(|n| {
+                        n.descendants()
+                            .find(|n| n.has_tag_name("text"))
+                            .unwrap()
+                            .text()
+                            .unwrap()
+                            .to_string()
+                    })
                     .collect()
             } else if let Some(path) = id_path.get("toc.xhtml") {
                 let xml = self.get_text(dirname.join(path).to_str().unwrap());
@@ -129,12 +131,16 @@ impl Epub {
             }
         };
 
-        paths.into_iter().enumerate().map(|(i, path)| {
-            let title = titles.get(i).unwrap_or(&path.to_string()).to_string();
-            let path = dirname.join(path).to_str().unwrap().to_string();
-            (title, path)
-        })
-        .collect()
+        paths
+            .into_iter()
+            .enumerate()
+            .map(|(i, path)| {
+                let title =
+                    titles.get(i).unwrap_or(&path.to_string()).to_string();
+                let path = dirname.join(path).to_str().unwrap().to_string();
+                (title, path)
+            })
+            .collect()
     }
 }
 
@@ -255,7 +261,7 @@ impl Bk {
     }
     fn run_nav(&mut self, e: Event) {
         match e {
-            Event::Key(e)  => match e.code {
+            Event::Key(e) => match e.code {
                 KeyCode::Tab | KeyCode::Char('q') => self.mode = Mode::Read,
                 KeyCode::Down | KeyCode::Char('j') => {
                     if self.nav_idx < self.toc.len() - 1 {
@@ -273,8 +279,8 @@ impl Bk {
                 }
                 KeyCode::Char('g') => self.nav_idx = 0,
                 KeyCode::Char('G') => self.nav_idx = self.toc.len() - 1,
-                _ => ()
-            }
+                _ => (),
+            },
             Event::Mouse(e) => match e {
                 MouseEvent::ScrollDown(_, _, _) => {
                     if self.nav_idx < self.toc.len() - 1 {
@@ -292,7 +298,7 @@ impl Bk {
                 }
                 _ => (),
             },
-            _ => ()
+            _ => (),
         }
     }
     fn run_read(&mut self, e: Event) -> bool {
@@ -368,24 +374,28 @@ impl Bk {
     }
     fn render_nav(&self) {
         let mut stdout = stdout();
-        queue!(
-            stdout,
-            terminal::Clear(terminal::ClearType::All),
-        )
-        .unwrap();
+        queue!(stdout, terminal::Clear(terminal::ClearType::All),).unwrap();
         let end = std::cmp::min(self.rows, self.toc.len());
         for i in 0..end {
             if i == self.nav_idx {
-                queue!(stdout,
-                       cursor::MoveTo(0, i as u16),
-                       Print(format!("{}{}{}",
-                                     Attribute::Reverse,
-                                     &self.toc[i].0,
-                                     Attribute::Reset))).unwrap();
+                queue!(
+                    stdout,
+                    cursor::MoveTo(0, i as u16),
+                    Print(format!(
+                        "{}{}{}",
+                        Attribute::Reverse,
+                        &self.toc[i].0,
+                        Attribute::Reset
+                    ))
+                )
+                .unwrap();
             } else {
-                queue!(stdout,
-                       cursor::MoveTo(0, i as u16),
-                       Print(&self.toc[i].0)).unwrap();
+                queue!(
+                    stdout,
+                    cursor::MoveTo(0, i as u16),
+                    Print(&self.toc[i].0)
+                )
+                .unwrap();
             }
         }
 
@@ -408,18 +418,10 @@ PageDown Right Space f l  Page Down
                   Home g  Chapter Start
                    End G  Chapter End
                    "#;
-        queue!(
-            stdout,
-            terminal::Clear(terminal::ClearType::All),
-        )
-        .unwrap();
+        queue!(stdout, terminal::Clear(terminal::ClearType::All),).unwrap();
 
         for (i, line) in text.lines().enumerate() {
-            queue!(
-                stdout,
-                cursor::MoveTo(0, i as u16),
-                Print(line)
-                ).unwrap();
+            queue!(stdout, cursor::MoveTo(0, i as u16), Print(line)).unwrap();
         }
         stdout.flush().unwrap();
     }
