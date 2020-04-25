@@ -196,6 +196,7 @@ impl Bk {
             rows: rows as usize,
         };
         bk.get_chapter(chapter_idx);
+        bk.pos = pos;
         Ok(bk)
     }
     fn get_chapter(&mut self, idx: usize) {
@@ -224,6 +225,15 @@ impl Bk {
                         n.descendants()
                             .filter(|n| n.is_text())
                             .map(|n| n.text().unwrap())
+                            .collect(),
+                    );
+                    chapter.push(String::from(""));
+                }
+                "li" => {
+                    chapter.push(
+                        n.descendants()
+                            .filter(|n| n.is_text())
+                            .map(|n| format!("- {}", n.text().unwrap()))
                             .collect(),
                     );
                     chapter.push(String::from(""));
@@ -306,7 +316,7 @@ impl Bk {
             Event::Key(e) => match e.code {
                 KeyCode::Esc | KeyCode::Char('q') => return false,
                 KeyCode::Tab => self.start_nav(),
-                KeyCode::Char('?') => self.mode = Mode::Help,
+                KeyCode::F(1) | KeyCode::Char('?') => self.mode = Mode::Help,
                 KeyCode::Char('p') => {
                     if self.chapter_idx > 0 {
                         self.get_chapter(self.chapter_idx - 1);
@@ -404,7 +414,7 @@ impl Bk {
     fn render_help(&self) {
         let text = r#"
                    Esc q  Quit
-                       ?  Help
+                    F1 ?  Help
                      Tab  Table of Contents
 PageDown Right Space f l  Page Down
          PageUp Left b h  Page Up
