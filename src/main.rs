@@ -402,7 +402,6 @@ impl Bk {
         stdout.flush().unwrap();
     }
     fn render_help(&self) {
-        let mut stdout = stdout();
         let text = r#"
                    Esc q  Quit
                        ?  Help
@@ -418,8 +417,9 @@ PageDown Right Space f l  Page Down
                   Home g  Chapter Start
                    End G  Chapter End
                    "#;
-        queue!(stdout, terminal::Clear(terminal::ClearType::All),).unwrap();
 
+        let mut stdout = stdout();
+        queue!(stdout, terminal::Clear(terminal::ClearType::All),).unwrap();
         for (i, line) in text.lines().enumerate() {
             queue!(stdout, cursor::MoveTo(0, i as u16), Print(line)).unwrap();
         }
