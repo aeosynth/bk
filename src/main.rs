@@ -4,10 +4,7 @@ use std::io::{stdout, Error, Read, Write};
 
 use crossterm::{
     cursor,
-    event::{
-        read, DisableMouseCapture, EnableMouseCapture, Event, KeyCode,
-        MouseEvent,
-    },
+    event::{self, Event, KeyCode, MouseEvent},
     queue,
     style::{Attribute, Print},
     terminal,
@@ -31,6 +28,7 @@ struct Bk {
     cols: u16,
     chapter: Vec<String>,
     chapter_idx: usize,
+    nav_idx: usize,
     pos: usize,
     rows: usize,
     toc: Vec<(String, String)>,
@@ -183,6 +181,7 @@ impl Bk {
             mode: Mode::Read,
             chapter: Vec::new(),
             chapter_idx,
+            nav_idx: 0,
             toc: epub.get_toc(),
             epub,
             pos,
@@ -229,13 +228,13 @@ impl Bk {
         chapter.pop(); //padding
         self.chapter = wrap(chapter, self.cols - (self.pad * 2));
         self.chapter_idx = idx;
+        self.pos = 0;
     }
     fn scroll_down(&mut self, n: usize) {
         if self.rows < self.chapter.len() - self.pos {
             self.pos += n;
         } else if self.chapter_idx < self.toc.len() - 1 {
             self.get_chapter(self.chapter_idx + 1);
-            self.pos = 0;
         }
     }
     fn scroll_up(&mut self, n: usize) {
@@ -256,25 +255,60 @@ impl Bk {
     }
     fn run_nav(&mut self, e: Event) {
         match e {
-            _ => self.mode = Mode::Read,
+            Event::Key(e)  => match e.code {
+                KeyCode::Tab | KeyCode::Char('q') => self.mode = Mode::Read,
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if self.nav_idx < self.toc.len() - 1 {
+                        self.nav_idx += 1;
+                    }
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if self.nav_idx > 0 {
+                        self.nav_idx -= 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    self.get_chapter(self.nav_idx);
+                    self.mode = Mode::Read;
+                }
+                KeyCode::Char('g') => self.nav_idx = 0,
+                KeyCode::Char('G') => self.nav_idx = self.toc.len() - 1,
+                _ => ()
+            }
+            Event::Mouse(e) => match e {
+                MouseEvent::ScrollDown(_, _, _) => {
+                    if self.nav_idx < self.toc.len() - 1 {
+                        self.nav_idx += 1;
+                    }
+                }
+                MouseEvent::ScrollUp(_, _, _) => {
+                    if self.nav_idx > 0 {
+                        self.nav_idx -= 1;
+                    }
+                }
+                MouseEvent::Down(event::MouseButton::Left, _, row, _) => {
+                    self.get_chapter(row as usize);
+                    self.mode = Mode::Read;
+                }
+                _ => (),
+            },
+            _ => ()
         }
     }
     fn run_read(&mut self, e: Event) -> bool {
         match e {
             Event::Key(e) => match e.code {
                 KeyCode::Esc | KeyCode::Char('q') => return false,
-                KeyCode::Tab => self.mode = Mode::Nav,
+                KeyCode::Tab => self.start_nav(),
                 KeyCode::Char('?') => self.mode = Mode::Help,
                 KeyCode::Char('p') => {
                     if self.chapter_idx > 0 {
                         self.get_chapter(self.chapter_idx - 1);
-                        self.pos = 0;
                     }
                 }
                 KeyCode::Char('n') => {
                     if self.chapter_idx < self.toc.len() - 1 {
                         self.get_chapter(self.chapter_idx + 1);
-                        self.pos = 0;
                     }
                 }
                 KeyCode::End | KeyCode::Char('G') => {
@@ -328,6 +362,10 @@ impl Bk {
             Mode::Nav => self.render_nav(),
         }
     }
+    fn start_nav(&mut self) {
+        self.nav_idx = self.chapter_idx;
+        self.mode = Mode::Nav;
+    }
     fn render_nav(&self) {
         let mut stdout = stdout();
         queue!(
@@ -337,19 +375,52 @@ impl Bk {
         .unwrap();
         let end = std::cmp::min(self.rows, self.toc.len());
         for i in 0..end {
-            queue!(stdout, cursor::MoveTo(0, i as u16), Print(&self.toc[i].0)).unwrap();
+            if i == self.nav_idx {
+                queue!(stdout,
+                       cursor::MoveTo(0, i as u16),
+                       Print(format!("{}{}{}",
+                                     Attribute::Reverse,
+                                     &self.toc[i].0,
+                                     Attribute::Reset))).unwrap();
+            } else {
+                queue!(stdout,
+                       cursor::MoveTo(0, i as u16),
+                       Print(&self.toc[i].0)).unwrap();
+            }
         }
+
         stdout.flush().unwrap();
     }
     fn render_help(&self) {
         let mut stdout = stdout();
+        let text = r#"
+                   Esc q  Quit
+                       ?  Help
+                     Tab  Table of Contents
+PageDown Right Space f l  Page Down
+         PageUp Left b h  Page Up
+                       d  Half Page Down
+                       u  Half Page Up
+                  Down j  Line Down
+                    Up k  Line Up
+                       n  Next Chapter
+                       p  Previous Chapter
+                  Home g  Chapter Start
+                   End G  Chapter End
+                   "#;
         queue!(
             stdout,
             terminal::Clear(terminal::ClearType::All),
-            cursor::MoveTo(0, 0),
-            Print("TODO: help text")
         )
         .unwrap();
+
+        for (i, line) in text.lines().enumerate() {
+            queue!(
+                stdout,
+                cursor::MoveTo(0, i as u16),
+                Print(line)
+                ).unwrap();
+        }
         stdout.flush().unwrap();
     }
     fn render_read(&self) {
@@ -411,7 +482,7 @@ fn main() -> crossterm::Result<()> {
         std::process::exit(1);
     });
 
-    let mut bk = Bk::new(&path, chapter, pos, 2).unwrap_or_else(|e| {
+    let mut bk = Bk::new(&path, chapter, pos, 3).unwrap_or_else(|e| {
         println!("error reading epub: {}", e);
         std::process::exit(1);
     });
@@ -421,12 +492,12 @@ fn main() -> crossterm::Result<()> {
         stdout,
         terminal::EnterAlternateScreen,
         cursor::Hide,
-        EnableMouseCapture
+        event::EnableMouseCapture
     )?;
     terminal::enable_raw_mode()?;
 
     bk.render();
-    while bk.run(read()?) {
+    while bk.run(event::read()?) {
         bk.render();
     }
 
@@ -435,11 +506,12 @@ fn main() -> crossterm::Result<()> {
         format!("{}\n{}\n{}", path, bk.chapter_idx, bk.pos),
     )
     .unwrap();
+
     queue!(
         stdout,
         terminal::LeaveAlternateScreen,
         cursor::Show,
-        DisableMouseCapture
+        event::DisableMouseCapture
     )?;
     stdout.flush()?;
     terminal::disable_raw_mode()
