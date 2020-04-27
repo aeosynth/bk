@@ -62,7 +62,9 @@ impl Epub {
             .attribute("full-path")
             .unwrap();
 
-        // in theory the toc is enough, in reality it isn't
+        // manifest - paths
+        // spine - order
+        // toc - names
         let mut id_path = HashMap::new();
         let xml = self.get_text(path);
         let doc = Document::parse(&xml).unwrap();
@@ -91,7 +93,8 @@ impl Epub {
 
         // epub2: item id="ncx" (spine toc=id)
         // epub3: item properties="nav"
-        let titles: Vec<String> = {
+        // TODO is epub3 toc usable w/o spine?
+        let toc: Vec<_> = {
             if let Some(path) = id_path.get("ncx") {
                 let xml = self.get_text(dirname.join(path).to_str().unwrap());
                 let doc = Document::parse(&xml).unwrap();
@@ -102,12 +105,20 @@ impl Epub {
                     .descendants()
                     .filter(|n| n.has_tag_name("navPoint"))
                     .map(|n| {
-                        n.descendants()
+                        (
+                            n.descendants()
+                            .find(|n| n.has_tag_name("content"))
+                            .unwrap()
+                            .attribute("src")
+                            .unwrap()
+                            .to_string(),
+                            n.descendants()
                             .find(|n| n.has_tag_name("text"))
                             .unwrap()
                             .text()
                             .unwrap()
                             .to_string()
+                        )
                     })
                     .collect()
             } else if let Some(path) = id_path.get("toc.xhtml") {
@@ -120,10 +131,12 @@ impl Epub {
                     .descendants()
                     .filter(|n| n.has_tag_name("a"))
                     .map(|n| {
-                        n.descendants()
+                        let path = n.attribute("href").unwrap().to_string();
+                        let text = n.descendants()
                             .filter(|n| n.is_text())
                             .map(|n| n.text().unwrap())
-                            .collect()
+                            .collect();
+                        (path, text)
                     })
                     .collect()
             } else {
@@ -131,16 +144,20 @@ impl Epub {
             }
         };
 
-        paths
-            .into_iter()
-            .enumerate()
-            .map(|(i, path)| {
-                let title =
-                    titles.get(i).unwrap_or(&path.to_string()).to_string();
-                let path = dirname.join(path).to_str().unwrap().to_string();
-                (title, path)
-            })
-            .collect()
+        // playOrder is not a thing
+        let mut toc_idx = 0;
+        paths.into_iter().enumerate().map(|(i, path)| {
+            let zip_path = dirname.join(path).to_str().unwrap().to_string();
+            let name = match toc.get(toc_idx) {
+                Some(point) if point.0 == path => {
+                    toc_idx += 1;
+                    point.1.to_string()
+                },
+                _ => i.to_string(),
+            };
+            (name, zip_path)
+        })
+        .collect()
     }
 }
 
