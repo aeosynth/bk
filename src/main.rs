@@ -107,17 +107,17 @@ impl Epub {
                     .map(|n| {
                         (
                             n.descendants()
-                            .find(|n| n.has_tag_name("content"))
-                            .unwrap()
-                            .attribute("src")
-                            .unwrap()
-                            .to_string(),
+                                .find(|n| n.has_tag_name("content"))
+                                .unwrap()
+                                .attribute("src")
+                                .unwrap()
+                                .to_string(),
                             n.descendants()
-                            .find(|n| n.has_tag_name("text"))
-                            .unwrap()
-                            .text()
-                            .unwrap()
-                            .to_string()
+                                .find(|n| n.has_tag_name("text"))
+                                .unwrap()
+                                .text()
+                                .unwrap()
+                                .to_string(),
                         )
                     })
                     .collect()
@@ -132,7 +132,8 @@ impl Epub {
                     .filter(|n| n.has_tag_name("a"))
                     .map(|n| {
                         let path = n.attribute("href").unwrap().to_string();
-                        let text = n.descendants()
+                        let text = n
+                            .descendants()
                             .filter(|n| n.is_text())
                             .map(|n| n.text().unwrap())
                             .collect();
@@ -146,18 +147,22 @@ impl Epub {
 
         // playOrder is not a thing
         let mut toc_idx = 0;
-        paths.into_iter().enumerate().map(|(i, path)| {
-            let zip_path = dirname.join(path).to_str().unwrap().to_string();
-            let name = match toc.get(toc_idx) {
-                Some(point) if point.0 == path => {
-                    toc_idx += 1;
-                    point.1.to_string()
-                },
-                _ => i.to_string(),
-            };
-            (name, zip_path)
-        })
-        .collect()
+        paths
+            .into_iter()
+            .enumerate()
+            .map(|(i, path)| {
+                let zip_path =
+                    dirname.join(path).to_str().unwrap().to_string();
+                let name = match toc.get(toc_idx) {
+                    Some(point) if point.0 == path => {
+                        toc_idx += 1;
+                        point.1.to_string()
+                    }
+                    _ => i.to_string(),
+                };
+                (name, zip_path)
+            })
+            .collect()
     }
 }
 
@@ -289,7 +294,9 @@ impl Bk {
     fn run_nav(&mut self, e: Event) {
         match e {
             Event::Key(e) => match e.code {
-                KeyCode::Tab | KeyCode::Char('q') => self.mode = Mode::Read,
+                KeyCode::Esc | KeyCode::Tab | KeyCode::Char('q') => {
+                    self.mode = Mode::Read
+                }
                 KeyCode::Down | KeyCode::Char('j') => {
                     if self.nav_idx < self.toc.len() - 1 {
                         self.nav_idx += 1;
@@ -304,8 +311,10 @@ impl Bk {
                     self.get_chapter(self.nav_idx);
                     self.mode = Mode::Read;
                 }
-                KeyCode::Char('g') => self.nav_idx = 0,
-                KeyCode::Char('G') => self.nav_idx = self.toc.len() - 1,
+                KeyCode::Home | KeyCode::Char('g') => self.nav_idx = 0,
+                KeyCode::End | KeyCode::Char('G') => {
+                    self.nav_idx = self.toc.len() - 1
+                }
                 _ => (),
             },
             Event::Mouse(e) => match e {
