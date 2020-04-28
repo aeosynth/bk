@@ -7,7 +7,7 @@ use crossterm::{
     event::{self, Event, KeyCode, MouseEvent},
     queue,
     style::{Attribute, Print},
-    terminal,
+    terminal::{self, ClearType},
 };
 
 use roxmltree::Document;
@@ -16,23 +16,11 @@ enum Mode {
     Help,
     Nav,
     Read,
+    Search,
 }
 
 struct Epub {
     container: zip::ZipArchive<File>,
-}
-
-struct Bk {
-    mode: Mode,
-    epub: Epub,
-    cols: u16,
-    chapter: Vec<String>,
-    chapter_idx: usize,
-    nav_idx: usize,
-    pos: usize,
-    rows: usize,
-    toc: Vec<(String, String)>,
-    pad: u16,
 }
 
 impl Epub {
@@ -168,6 +156,7 @@ impl Epub {
 
 fn wrap(text: Vec<String>, width: u16) -> Vec<String> {
     // XXX assumes a char is 1 unit wide
+    // TODO break at dash/hyphen
     let mut wrapped = Vec::with_capacity(text.len() * 2);
 
     for chunk in text {
@@ -196,6 +185,20 @@ fn wrap(text: Vec<String>, width: u16) -> Vec<String> {
     wrapped
 }
 
+struct Bk {
+    mode: Mode,
+    epub: Epub,
+    cols: u16,
+    chapter: Vec<String>,
+    chapter_idx: usize,
+    nav_idx: usize,
+    pos: usize,
+    rows: usize,
+    toc: Vec<(String, String)>,
+    pad: u16,
+    search: String,
+}
+
 impl Bk {
     fn new(
         path: &str,
@@ -216,6 +219,7 @@ impl Bk {
             pad,
             cols,
             rows: rows as usize,
+            search: String::new(),
         };
         bk.get_chapter(chapter_idx);
         bk.pos = pos;
@@ -288,8 +292,43 @@ impl Bk {
             Mode::Read => return self.run_read(e),
             Mode::Nav => self.run_nav(e),
             Mode::Help => self.mode = Mode::Read,
+            Mode::Search => self.run_search(e),
         }
         true
+    }
+    fn really_search(&mut self, forwards: bool) {
+        if forwards {
+            if let Some(pos) = self.chapter[self.pos + 1..]
+                .iter()
+                .position(|s| s.contains(&self.search))
+            {
+                self.pos += pos + 1;
+            }
+        } else if let Some(pos) = self.chapter[0..self.pos - 1]
+            .iter()
+            .rposition(|s| s.contains(&self.search))
+        {
+            self.pos = pos;
+        }
+    }
+    fn run_search(&mut self, e: Event) {
+        match e {
+            Event::Key(e) => match e.code {
+                KeyCode::Esc => {
+                    self.search = String::new();
+                    self.mode = Mode::Read;
+                }
+                KeyCode::Enter => {
+                    self.mode = Mode::Read;
+                    self.really_search(true);
+                }
+                KeyCode::Char(c) => {
+                    self.search.push(c);
+                }
+                _ => (),
+            },
+            _ => (),
+        }
     }
     fn run_nav(&mut self, e: Event) {
         match e {
@@ -343,15 +382,15 @@ impl Bk {
                 KeyCode::Esc | KeyCode::Char('q') => return false,
                 KeyCode::Tab => self.start_nav(),
                 KeyCode::F(1) | KeyCode::Char('?') => self.mode = Mode::Help,
-                KeyCode::Char('p') => {
-                    if self.chapter_idx > 0 {
-                        self.get_chapter(self.chapter_idx - 1);
-                    }
+                KeyCode::Char('/') => {
+                    self.search = String::new();
+                    self.mode = Mode::Search;
+                }
+                KeyCode::Char('N') => {
+                    self.really_search(false);
                 }
                 KeyCode::Char('n') => {
-                    if self.chapter_idx < self.toc.len() - 1 {
-                        self.get_chapter(self.chapter_idx + 1);
-                    }
+                    self.really_search(true);
                 }
                 KeyCode::End | KeyCode::Char('G') => {
                     self.pos = (self.chapter.len() / self.rows) * self.rows;
@@ -402,7 +441,19 @@ impl Bk {
             Mode::Read => self.render_read(),
             Mode::Help => self.render_help(),
             Mode::Nav => self.render_nav(),
+            Mode::Search => self.render_search(),
         }
+    }
+    fn render_search(&self) {
+        let mut stdout = stdout();
+        queue!(
+            stdout,
+            cursor::MoveTo(0, self.rows as u16),
+            terminal::Clear(ClearType::CurrentLine),
+            Print(&self.search)
+        )
+        .unwrap();
+        stdout.flush().unwrap();
     }
     fn start_nav(&mut self) {
         self.nav_idx = self.chapter_idx;
@@ -410,7 +461,7 @@ impl Bk {
     }
     fn render_nav(&self) {
         let mut stdout = stdout();
-        queue!(stdout, terminal::Clear(terminal::ClearType::All),).unwrap();
+        queue!(stdout, terminal::Clear(ClearType::All),).unwrap();
         let end = std::cmp::min(self.rows, self.toc.len());
         for i in 0..end {
             if i == self.nav_idx {
@@ -441,21 +492,23 @@ impl Bk {
         let text = r#"
                    Esc q  Quit
                     F1 ?  Help
+                       /  Search
                      Tab  Table of Contents
+
 PageDown Right Space f l  Page Down
          PageUp Left b h  Page Up
                        d  Half Page Down
                        u  Half Page Up
                   Down j  Line Down
                     Up k  Line Up
-                       n  Next Chapter
-                       p  Previous Chapter
                   Home g  Chapter Start
                    End G  Chapter End
+                       n  Search Forwards
+                       N  Search Backwards
                    "#;
 
         let mut stdout = stdout();
-        queue!(stdout, terminal::Clear(terminal::ClearType::All),).unwrap();
+        queue!(stdout, terminal::Clear(ClearType::All),).unwrap();
         for (i, line) in text.lines().enumerate() {
             queue!(stdout, cursor::MoveTo(0, i as u16), Print(line)).unwrap();
         }
@@ -465,7 +518,7 @@ PageDown Right Space f l  Page Down
         let mut stdout = stdout();
         queue!(
             stdout,
-            terminal::Clear(terminal::ClearType::All),
+            terminal::Clear(ClearType::All),
             cursor::MoveTo(self.pad, 0),
         )
         .unwrap();
