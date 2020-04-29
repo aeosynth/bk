@@ -68,7 +68,7 @@ impl Epub {
                     n.attribute("href").unwrap(),
                 );
             });
-        let dirname = std::path::Path::new(&path).parent().unwrap();
+        let rootdir = std::path::Path::new(&path).parent().unwrap();
         let paths: Vec<&str> = doc
             .root_element()
             .children()
@@ -79,78 +79,66 @@ impl Epub {
             .map(|n| id_path.remove(n.attribute("idref").unwrap()).unwrap())
             .collect();
 
-        // epub2: item id="ncx" (spine toc=id)
-        // epub3: item properties="nav"
-        // TODO is epub3 toc usable w/o spine?
-        let toc: Vec<_> = {
-            if let Some(path) = id_path.get("ncx") {
-                let xml = self.get_text(dirname.join(path).to_str().unwrap());
-                let doc = Document::parse(&xml).unwrap();
+        let mut toc = HashMap::new();
+        if doc.root_element().attribute("version") == Some("3.0") {
+            let path = doc.root_element().children()
+                .find(|n| n.has_tag_name("manifest"))
+                .unwrap()
+                .children()
+                .find(|n| n.attribute("properties") == Some("nav"))
+                .unwrap()
+                .attribute("href")
+                .unwrap();
+            let xml = self.get_text(rootdir.join(path).to_str().unwrap());
+            let doc = Document::parse(&xml).unwrap();
 
-                doc.descendants()
-                    .find(|n| n.has_tag_name("navMap"))
-                    .unwrap()
-                    .descendants()
-                    .filter(|n| n.has_tag_name("navPoint"))
-                    .map(|n| {
-                        (
-                            n.descendants()
-                                .find(|n| n.has_tag_name("content"))
-                                .unwrap()
-                                .attribute("src")
-                                .unwrap()
-                                .to_string(),
-                            n.descendants()
-                                .find(|n| n.has_tag_name("text"))
-                                .unwrap()
-                                .text()
-                                .unwrap()
-                                .to_string(),
-                        )
-                    })
-                    .collect()
-            } else if let Some(path) = id_path.get("toc.xhtml") {
-                let xml = self.get_text(dirname.join(path).to_str().unwrap());
-                let doc = Document::parse(&xml).unwrap();
+            doc.descendants()
+                .find(|n| n.has_tag_name("nav"))
+                .unwrap()
+                .descendants()
+                .filter(|n| n.has_tag_name("a"))
+                .for_each(|n| {
+                    let path = n.attribute("href").unwrap().to_string();
+                    let text = n
+                        .descendants()
+                        .filter(|n| n.is_text())
+                        .map(|n| n.text().unwrap())
+                        .collect();
+                    toc.insert(path, text);
+                })
+        } else {
+            let path = id_path.get("ncx").unwrap();
+            let xml = self.get_text(rootdir.join(path).to_str().unwrap());
+            let doc = Document::parse(&xml).unwrap();
 
-                doc.descendants()
-                    .find(|n| n.has_tag_name("nav"))
-                    .unwrap()
-                    .descendants()
-                    .filter(|n| n.has_tag_name("a"))
-                    .map(|n| {
-                        let path = n.attribute("href").unwrap().to_string();
-                        let text = n
-                            .descendants()
-                            .filter(|n| n.is_text())
-                            .map(|n| n.text().unwrap())
-                            .collect();
-                        (path, text)
-                    })
-                    .collect()
-            } else {
-                panic!("can't read epub");
-            }
-        };
+            doc.descendants()
+                .find(|n| n.has_tag_name("navMap"))
+                .unwrap()
+                .descendants()
+                .filter(|n| n.has_tag_name("navPoint"))
+                .for_each(|n| {
+                    let path = n.descendants()
+                        .find(|n| n.has_tag_name("content"))
+                        .unwrap()
+                        .attribute("src")
+                        .unwrap()
+                        .to_string();
+                    let text = n.descendants()
+                        .find(|n| n.has_tag_name("text"))
+                        .unwrap()
+                        .text()
+                        .unwrap()
+                        .to_string();
+                    toc.insert(path, text);
+                })
+        }
 
-        // playOrder is not a thing
-        let mut toc_idx = 0;
-        paths
-            .into_iter()
-            .enumerate()
-            .map(|(i, path)| {
-                let zip_path =
-                    dirname.join(path).to_str().unwrap().to_string();
-                let name = match toc.get(toc_idx) {
-                    Some(point) if point.0 == path => {
-                        toc_idx += 1;
-                        point.1.to_string()
-                    }
-                    _ => i.to_string(),
-                };
-                (name, zip_path)
-            })
-            .collect()
+        paths.into_iter().enumerate().map(|(i, path)| {
+            let title = toc.remove(path).unwrap_or(i.to_string());
+            let path = rootdir.join(path).to_str().unwrap().to_string();
+            (title, path)
+        })
+        .collect()
     }
 }
 
@@ -212,14 +200,13 @@ impl Bk {
             nav_idx: 0,
             toc: epub.get_toc(),
             epub,
-            pos: 0,
+            pos: pos.2,
             pad,
             cols,
             rows: rows as usize,
             search: String::new(),
         };
         bk.get_chapter(pos.1);
-        bk.pos = pos.2;
         Ok(bk)
     }
     fn run(&mut self) -> crossterm::Result<()> {
@@ -250,7 +237,7 @@ impl Bk {
                     self.rows = rows as usize;
                     self.get_chapter(self.chapter_idx);
                 }
-                // mouse isn't captured
+                // TODO
                 Event::Mouse(_) => (),
             }
             self.render();
@@ -310,13 +297,13 @@ impl Bk {
         chapter.pop(); //padding
         self.chapter = wrap(chapter, self.cols - (self.pad * 2));
         self.chapter_idx = idx;
-        self.pos = 0;
     }
     fn scroll_down(&mut self, n: usize) {
         if self.rows < self.chapter.len() - self.pos {
             self.pos += n;
         } else if self.chapter_idx < self.toc.len() - 1 {
             self.get_chapter(self.chapter_idx + 1);
+            self.pos = 0;
         }
     }
     fn scroll_up(&mut self, n: usize) {
@@ -375,6 +362,7 @@ impl Bk {
             }
             KeyCode::Enter => {
                 self.get_chapter(self.nav_idx);
+                self.pos = 0;
                 self.mode = Mode::Read;
             }
             KeyCode::Home | KeyCode::Char('g') => self.nav_idx = 0,
