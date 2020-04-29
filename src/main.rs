@@ -53,7 +53,7 @@ impl Epub {
         // manifest - paths
         // spine - order
         // toc - names
-        let mut id_path = HashMap::new();
+        let mut manifest = HashMap::new();
         let xml = self.get_text(path);
         let doc = Document::parse(&xml).unwrap();
         doc.root_element()
@@ -63,7 +63,7 @@ impl Epub {
             .children()
             .filter(|n| n.is_element())
             .for_each(|n| {
-                id_path.insert(
+                manifest.insert(
                     n.attribute("id").unwrap(),
                     n.attribute("href").unwrap(),
                 );
@@ -76,12 +76,14 @@ impl Epub {
             .unwrap()
             .children()
             .filter(|n| n.is_element())
-            .map(|n| id_path.remove(n.attribute("idref").unwrap()).unwrap())
+            .map(|n| manifest.remove(n.attribute("idref").unwrap()).unwrap())
             .collect();
 
         let mut toc = HashMap::new();
         if doc.root_element().attribute("version") == Some("3.0") {
-            let path = doc.root_element().children()
+            let path = doc
+                .root_element()
+                .children()
                 .find(|n| n.has_tag_name("manifest"))
                 .unwrap()
                 .children()
@@ -107,7 +109,7 @@ impl Epub {
                     toc.insert(path, text);
                 })
         } else {
-            let path = id_path.get("ncx").unwrap();
+            let path = manifest.get("ncx").unwrap();
             let xml = self.get_text(rootdir.join(path).to_str().unwrap());
             let doc = Document::parse(&xml).unwrap();
 
@@ -117,13 +119,15 @@ impl Epub {
                 .descendants()
                 .filter(|n| n.has_tag_name("navPoint"))
                 .for_each(|n| {
-                    let path = n.descendants()
+                    let path = n
+                        .descendants()
                         .find(|n| n.has_tag_name("content"))
                         .unwrap()
                         .attribute("src")
                         .unwrap()
                         .to_string();
-                    let text = n.descendants()
+                    let text = n
+                        .descendants()
                         .find(|n| n.has_tag_name("text"))
                         .unwrap()
                         .text()
@@ -133,12 +137,15 @@ impl Epub {
                 })
         }
 
-        paths.into_iter().enumerate().map(|(i, path)| {
-            let title = toc.remove(path).unwrap_or(i.to_string());
-            let path = rootdir.join(path).to_str().unwrap().to_string();
-            (title, path)
-        })
-        .collect()
+        paths
+            .into_iter()
+            .enumerate()
+            .map(|(i, path)| {
+                let title = toc.remove(path).unwrap_or(i.to_string());
+                let path = rootdir.join(path).to_str().unwrap().to_string();
+                (title, path)
+            })
+            .collect()
     }
 }
 
@@ -253,10 +260,10 @@ impl Bk {
         terminal::disable_raw_mode()
     }
     fn get_chapter(&mut self, idx: usize) {
-        let mut chapter = Vec::new();
         let xml = self.epub.get_text(&self.toc[idx].1);
         let doc = Document::parse(&xml).unwrap();
 
+        let mut chapter = Vec::new();
         for n in doc.descendants() {
             match n.tag_name().name() {
                 "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
@@ -446,12 +453,13 @@ impl Bk {
     fn render_nav(&self) {
         let mut stdout = stdout();
         queue!(stdout, terminal::Clear(ClearType::All),).unwrap();
+
         let end = std::cmp::min(self.rows, self.toc.len());
         for i in 0..end {
+            queue!(stdout, cursor::MoveTo(0, i as u16)).unwrap();
             if i == self.nav_idx {
                 queue!(
                     stdout,
-                    cursor::MoveTo(0, i as u16),
                     Print(format!(
                         "{}{}{}",
                         Attribute::Reverse,
@@ -461,12 +469,7 @@ impl Bk {
                 )
                 .unwrap();
             } else {
-                queue!(
-                    stdout,
-                    cursor::MoveTo(0, i as u16),
-                    Print(&self.toc[i].0)
-                )
-                .unwrap();
+                queue!(stdout, Print(&self.toc[i].0)).unwrap();
             }
         }
 
@@ -500,22 +503,12 @@ PageDown Right Space f l  Page Down
     }
     fn render_read(&self) {
         let mut stdout = stdout();
-        queue!(
-            stdout,
-            terminal::Clear(ClearType::All),
-            cursor::MoveTo(self.pad, 0),
-        )
-        .unwrap();
+        queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
 
         let end = std::cmp::min(self.pos + self.rows, self.chapter.len());
-        for line in self.pos..end {
-            queue!(
-                stdout,
-                Print(&self.chapter[line]),
-                cursor::MoveToNextLine(1),
-                cursor::MoveRight(self.pad)
-            )
-            .unwrap();
+        for (y, line) in self.chapter[self.pos..end].iter().enumerate() {
+            queue!(stdout, cursor::MoveTo(self.pad, y as u16), Print(line),)
+                .unwrap();
         }
         stdout.flush().unwrap();
     }
