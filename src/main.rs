@@ -4,7 +4,7 @@ use std::io::{stdout, Error, Read, Write};
 
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, MouseEvent},
+    event::{self, Event, KeyCode},
     queue,
     style::{Attribute, Print},
     terminal::{self, ClearType},
@@ -199,31 +199,71 @@ struct Bk {
     search: String,
 }
 
+struct Position(String, usize, usize);
+
 impl Bk {
-    fn new(
-        path: &str,
-        chapter_idx: usize,
-        pos: usize,
-        pad: u16,
-    ) -> Result<Self, Error> {
+    fn new(pos: &Position, pad: u16) -> Result<Self, Error> {
         let (cols, rows) = terminal::size().unwrap();
-        let mut epub = Epub::new(path)?;
+        let mut epub = Epub::new(&pos.0)?;
         let mut bk = Bk {
             mode: Mode::Read,
             chapter: Vec::new(),
-            chapter_idx,
+            chapter_idx: 0,
             nav_idx: 0,
             toc: epub.get_toc(),
             epub,
-            pos,
+            pos: 0,
             pad,
             cols,
             rows: rows as usize,
             search: String::new(),
         };
-        bk.get_chapter(chapter_idx);
-        bk.pos = pos;
+        bk.get_chapter(pos.1);
+        bk.pos = pos.2;
         Ok(bk)
+    }
+    fn run(&mut self) -> crossterm::Result<()> {
+        let mut stdout = stdout();
+        queue!(
+            stdout,
+            terminal::EnterAlternateScreen,
+            cursor::Hide,
+            //event::EnableMouseCapture
+        )?;
+        terminal::enable_raw_mode()?;
+
+        self.render();
+        loop {
+            match event::read()? {
+                Event::Key(e) => match self.mode {
+                    Mode::Read => {
+                        if self.match_read(e.code) {
+                            break;
+                        }
+                    }
+                    Mode::Help => self.mode = Mode::Read,
+                    Mode::Nav => self.match_nav(e.code),
+                    Mode::Search => self.match_search(e.code),
+                },
+                Event::Resize(cols, rows) => {
+                    self.cols = cols;
+                    self.rows = rows as usize;
+                    self.get_chapter(self.chapter_idx);
+                }
+                // mouse isn't captured
+                Event::Mouse(_) => (),
+            }
+            self.render();
+        }
+
+        queue!(
+            stdout,
+            terminal::LeaveAlternateScreen,
+            cursor::Show,
+            //event::DisableMouseCapture
+        )?;
+        stdout.flush()?;
+        terminal::disable_raw_mode()
     }
     fn get_chapter(&mut self, idx: usize) {
         let mut chapter = Vec::new();
@@ -287,15 +327,6 @@ impl Bk {
             self.pos = (self.chapter.len() / self.rows) * self.rows;
         }
     }
-    fn run(&mut self, e: Event) -> bool {
-        match self.mode {
-            Mode::Read => return self.run_read(e),
-            Mode::Nav => self.run_nav(e),
-            Mode::Help => self.mode = Mode::Read,
-            Mode::Search => self.run_search(e),
-        }
-        true
-    }
     fn really_search(&mut self, forwards: bool) {
         if forwards {
             if let Some(pos) = self.chapter[self.pos + 1..]
@@ -311,130 +342,95 @@ impl Bk {
             self.pos = pos;
         }
     }
-    fn run_search(&mut self, e: Event) {
-        match e {
-            Event::Key(e) => match e.code {
-                KeyCode::Esc => {
-                    self.search = String::new();
-                    self.mode = Mode::Read;
-                }
-                KeyCode::Enter => {
-                    self.mode = Mode::Read;
-                    self.really_search(true);
-                }
-                KeyCode::Char(c) => {
-                    self.search.push(c);
-                }
-                _ => (),
-            },
-            _ => (),
-        }
-    }
-    fn run_nav(&mut self, e: Event) {
-        match e {
-            Event::Key(e) => match e.code {
-                KeyCode::Esc | KeyCode::Tab | KeyCode::Char('q') => {
-                    self.mode = Mode::Read
-                }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    if self.nav_idx < self.toc.len() - 1 {
-                        self.nav_idx += 1;
-                    }
-                }
-                KeyCode::Up | KeyCode::Char('k') => {
-                    if self.nav_idx > 0 {
-                        self.nav_idx -= 1;
-                    }
-                }
-                KeyCode::Enter => {
-                    self.get_chapter(self.nav_idx);
-                    self.mode = Mode::Read;
-                }
-                KeyCode::Home | KeyCode::Char('g') => self.nav_idx = 0,
-                KeyCode::End | KeyCode::Char('G') => {
-                    self.nav_idx = self.toc.len() - 1
-                }
-                _ => (),
-            },
-            Event::Mouse(e) => match e {
-                MouseEvent::ScrollDown(_, _, _) => {
-                    if self.nav_idx < self.toc.len() - 1 {
-                        self.nav_idx += 1;
-                    }
-                }
-                MouseEvent::ScrollUp(_, _, _) => {
-                    if self.nav_idx > 0 {
-                        self.nav_idx -= 1;
-                    }
-                }
-                MouseEvent::Down(event::MouseButton::Left, _, row, _) => {
-                    self.get_chapter(row as usize);
-                    self.mode = Mode::Read;
-                }
-                _ => (),
-            },
-            _ => (),
-        }
-    }
-    fn run_read(&mut self, e: Event) -> bool {
-        match e {
-            Event::Key(e) => match e.code {
-                KeyCode::Esc | KeyCode::Char('q') => return false,
-                KeyCode::Tab => self.start_nav(),
-                KeyCode::F(1) | KeyCode::Char('?') => self.mode = Mode::Help,
-                KeyCode::Char('/') => {
-                    self.search = String::new();
-                    self.mode = Mode::Search;
-                }
-                KeyCode::Char('N') => {
-                    self.really_search(false);
-                }
-                KeyCode::Char('n') => {
-                    self.really_search(true);
-                }
-                KeyCode::End | KeyCode::Char('G') => {
-                    self.pos = (self.chapter.len() / self.rows) * self.rows;
-                }
-                KeyCode::Home | KeyCode::Char('g') => self.pos = 0,
-                KeyCode::Char('d') => {
-                    self.scroll_down(self.rows / 2);
-                }
-                KeyCode::Char('u') => {
-                    self.scroll_up(self.rows / 2);
-                }
-                KeyCode::Up | KeyCode::Char('k') => {
-                    self.scroll_up(1);
-                }
-                KeyCode::Left
-                | KeyCode::PageUp
-                | KeyCode::Char('b')
-                | KeyCode::Char('h') => {
-                    self.scroll_up(self.rows);
-                }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    self.scroll_down(1);
-                }
-                KeyCode::Right
-                | KeyCode::PageDown
-                | KeyCode::Char('f')
-                | KeyCode::Char('l')
-                | KeyCode::Char(' ') => {
-                    self.scroll_down(self.rows);
-                }
-                _ => (),
-            },
-            Event::Mouse(e) => match e {
-                MouseEvent::ScrollDown(_, _, _) => self.scroll_down(3),
-                MouseEvent::ScrollUp(_, _, _) => self.scroll_up(3),
-                _ => (),
-            },
-            Event::Resize(cols, rows) => {
-                self.cols = cols;
-                self.rows = rows as usize;
-                self.get_chapter(self.chapter_idx);
+    fn match_search(&mut self, kc: KeyCode) {
+        match kc {
+            KeyCode::Esc => {
+                self.search = String::new();
+                self.mode = Mode::Read;
             }
+            KeyCode::Enter => {
+                self.mode = Mode::Read;
+                self.really_search(true);
+            }
+            KeyCode::Char(c) => {
+                self.search.push(c);
+            }
+            _ => (),
         }
-        true
+    }
+    fn match_nav(&mut self, kc: KeyCode) {
+        match kc {
+            KeyCode::Esc | KeyCode::Tab | KeyCode::Char('q') => {
+                self.mode = Mode::Read
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.nav_idx < self.toc.len() - 1 {
+                    self.nav_idx += 1;
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.nav_idx > 0 {
+                    self.nav_idx -= 1;
+                }
+            }
+            KeyCode::Enter => {
+                self.get_chapter(self.nav_idx);
+                self.mode = Mode::Read;
+            }
+            KeyCode::Home | KeyCode::Char('g') => self.nav_idx = 0,
+            KeyCode::End | KeyCode::Char('G') => {
+                self.nav_idx = self.toc.len() - 1
+            }
+            _ => (),
+        }
+    }
+    fn match_read(&mut self, kc: KeyCode) -> bool {
+        match kc {
+            KeyCode::Esc | KeyCode::Char('q') => return true,
+            KeyCode::Tab => self.start_nav(),
+            KeyCode::F(1) | KeyCode::Char('?') => self.mode = Mode::Help,
+            KeyCode::Char('/') => {
+                self.search = String::new();
+                self.mode = Mode::Search;
+            }
+            KeyCode::Char('N') => {
+                self.really_search(false);
+            }
+            KeyCode::Char('n') => {
+                self.really_search(true);
+            }
+            KeyCode::End | KeyCode::Char('G') => {
+                self.pos = (self.chapter.len() / self.rows) * self.rows;
+            }
+            KeyCode::Home | KeyCode::Char('g') => self.pos = 0,
+            KeyCode::Char('d') => {
+                self.scroll_down(self.rows / 2);
+            }
+            KeyCode::Char('u') => {
+                self.scroll_up(self.rows / 2);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.scroll_up(1);
+            }
+            KeyCode::Left
+            | KeyCode::PageUp
+            | KeyCode::Char('b')
+            | KeyCode::Char('h') => {
+                self.scroll_up(self.rows);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.scroll_down(1);
+            }
+            KeyCode::Right
+            | KeyCode::PageDown
+            | KeyCode::Char('f')
+            | KeyCode::Char('l')
+            | KeyCode::Char(' ') => {
+                self.scroll_down(self.rows);
+            }
+            _ => (),
+        }
+        false
     }
     fn render(&self) {
         match self.mode {
@@ -537,7 +533,7 @@ PageDown Right Space f l  Page Down
     }
 }
 
-fn restore() -> Option<(String, usize, usize)> {
+fn restore() -> Option<Position> {
     let path = std::env::args().nth(1);
     let save_path =
         format!("{}/.local/share/bk", std::env::var("HOME").unwrap());
@@ -545,7 +541,7 @@ fn restore() -> Option<(String, usize, usize)> {
 
     let get_save = |s: String| {
         let mut lines = s.lines();
-        (
+        Position(
             lines.next().unwrap().to_string(),
             lines.next().unwrap().parse::<usize>().unwrap(),
             lines.next().unwrap().parse::<usize>().unwrap(),
@@ -554,56 +550,38 @@ fn restore() -> Option<(String, usize, usize)> {
 
     match (save, path) {
         (Err(_), None) => None,
-        (Err(_), Some(path)) => Some((path, 0, 0)),
+        (Err(_), Some(path)) => Some(Position(path, 0, 0)),
         (Ok(save), None) => Some(get_save(save)),
         (Ok(save), Some(path)) => {
             let save = get_save(save);
             if save.0 == path {
                 Some(save)
             } else {
-                Some((path, 0, 0))
+                Some(Position(path, 0, 0))
             }
         }
     }
 }
 
-fn main() -> crossterm::Result<()> {
-    let (path, chapter, pos) = restore().unwrap_or_else(|| {
+fn main() {
+    let pos = restore().unwrap_or_else(|| {
         println!("usage: bk path");
         std::process::exit(1);
     });
 
-    let mut bk = Bk::new(&path, chapter, pos, 3).unwrap_or_else(|e| {
+    let mut bk = Bk::new(&pos, 3).unwrap_or_else(|e| {
         println!("error reading epub: {}", e);
         std::process::exit(1);
     });
 
-    let mut stdout = stdout();
-    queue!(
-        stdout,
-        terminal::EnterAlternateScreen,
-        cursor::Hide,
-        event::EnableMouseCapture
-    )?;
-    terminal::enable_raw_mode()?;
-
-    bk.render();
-    while bk.run(event::read()?) {
-        bk.render();
-    }
+    bk.run().unwrap();
 
     std::fs::write(
         format!("{}/.local/share/bk", std::env::var("HOME").unwrap()),
-        format!("{}\n{}\n{}", path, bk.chapter_idx, bk.pos),
+        format!("{}\n{}\n{}", pos.0, bk.chapter_idx, bk.pos),
     )
-    .unwrap();
-
-    queue!(
-        stdout,
-        terminal::LeaveAlternateScreen,
-        cursor::Show,
-        event::DisableMouseCapture
-    )?;
-    stdout.flush()?;
-    terminal::disable_raw_mode()
+    .unwrap_or_else(|e| {
+        println!("error saving position: {}", e);
+        std::process::exit(1);
+    });
 }
