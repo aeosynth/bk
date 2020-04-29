@@ -187,6 +187,7 @@ struct Bk {
     chapter: Vec<String>,
     chapter_idx: usize,
     nav_idx: usize,
+    nav_top: usize,
     pos: usize,
     rows: usize,
     toc: Vec<(String, String)>,
@@ -205,6 +206,7 @@ impl Bk {
             chapter: Vec::new(),
             chapter_idx: 0,
             nav_idx: 0,
+            nav_top: 0,
             toc: epub.get_toc(),
             epub,
             pos: pos.2,
@@ -354,27 +356,37 @@ impl Bk {
     }
     fn match_nav(&mut self, kc: KeyCode) {
         match kc {
-            KeyCode::Esc | KeyCode::Tab | KeyCode::Char('q') => {
+            KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('q') => {
                 self.mode = Mode::Read
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.nav_idx < self.toc.len() - 1 {
-                    self.nav_idx += 1;
-                }
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.nav_idx > 0 {
-                    self.nav_idx -= 1;
-                }
-            }
-            KeyCode::Enter => {
+            KeyCode::Enter | KeyCode::Tab | KeyCode::Char('l') => {
                 self.get_chapter(self.nav_idx);
                 self.pos = 0;
                 self.mode = Mode::Read;
             }
-            KeyCode::Home | KeyCode::Char('g') => self.nav_idx = 0,
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.nav_idx < self.toc.len() - 1 {
+                    self.nav_idx += 1;
+                    if self.nav_idx == self.nav_top + self.rows {
+                        self.nav_top += 1;
+                    }
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.nav_idx > 0 {
+                    if self.nav_idx == self.nav_top {
+                        self.nav_top -= 1;
+                    }
+                    self.nav_idx -= 1;
+                }
+            }
+            KeyCode::Home | KeyCode::Char('g') => {
+                self.nav_idx = 0;
+                self.nav_top = 0;
+            }
             KeyCode::End | KeyCode::Char('G') => {
-                self.nav_idx = self.toc.len() - 1
+                self.nav_idx = self.toc.len() - 1;
+                self.nav_top = self.toc.len().saturating_sub(self.rows);
             }
             _ => (),
         }
@@ -448,29 +460,26 @@ impl Bk {
     }
     fn start_nav(&mut self) {
         self.nav_idx = self.chapter_idx;
+        self.nav_top = self.nav_idx.saturating_sub(self.rows - 1);
         self.mode = Mode::Nav;
     }
     fn render_nav(&self) {
         let mut stdout = stdout();
         queue!(stdout, terminal::Clear(ClearType::All),).unwrap();
 
-        let end = std::cmp::min(self.rows, self.toc.len());
-        for i in 0..end {
-            queue!(stdout, cursor::MoveTo(0, i as u16)).unwrap();
-            if i == self.nav_idx {
-                queue!(
-                    stdout,
-                    Print(format!(
-                        "{}{}{}",
-                        Attribute::Reverse,
-                        &self.toc[i].0,
-                        Attribute::Reset
-                    ))
+        let end = std::cmp::min(self.nav_top + self.rows, self.toc.len());
+        for (i, line) in self.toc[self.nav_top..end].iter().enumerate() {
+            let s = if self.nav_idx == self.nav_top + i {
+                format!(
+                    "{}{}{}",
+                    Attribute::Reverse,
+                    line.0,
+                    Attribute::Reset
                 )
-                .unwrap();
             } else {
-                queue!(stdout, Print(&self.toc[i].0)).unwrap();
-            }
+                line.0.to_string()
+            };
+            queue!(stdout, cursor::MoveTo(0, i as u16), Print(s)).unwrap();
         }
 
         stdout.flush().unwrap();
@@ -507,7 +516,7 @@ PageDown Right Space f l  Page Down
 
         let end = std::cmp::min(self.pos + self.rows, self.chapter.len());
         for (y, line) in self.chapter[self.pos..end].iter().enumerate() {
-            queue!(stdout, cursor::MoveTo(self.pad, y as u16), Print(line),)
+            queue!(stdout, cursor::MoveTo(self.pad, y as u16), Print(line))
                 .unwrap();
         }
         stdout.flush().unwrap();
