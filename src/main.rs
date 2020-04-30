@@ -31,6 +31,46 @@ impl Epub {
             container: zip::ZipArchive::new(file)?,
         })
     }
+    fn render<'a>(acc: &mut Vec<Vec<&'a str>>, n: roxmltree::Node<'a, '_>) {
+        if n.is_text() {
+            let text = n.text().unwrap();
+            if !text.trim().is_empty() {
+                let last = acc.last_mut().unwrap();
+                last.push(text);
+            }
+            return
+        }
+
+        match n.tag_name().name() {
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                acc.push(vec!["\x1b\x5b1m"]);
+                for c in n.children() {
+                    Self::render(acc, c);
+                }
+                acc.push(vec!["\x1b\x5b0m"]);
+            }
+            "blockquote" | "p" => {
+                acc.push(Vec::new());
+                for c in n.children() {
+                    Self::render(acc, c);
+                }
+                acc.push(Vec::new());
+            }
+            "li" => {
+                acc.push(vec!["- "]);
+                for c in n.children() {
+                    Self::render(acc, c);
+                }
+                acc.push(Vec::new());
+            }
+            "br" => acc.push(Vec::new()),
+            _ => {
+                for c in n.children() {
+                    Self::render(acc, c);
+                }
+            }
+        }
+    }
     fn get_text(&mut self, name: &str) -> String {
         let mut text = String::new();
         self.container
@@ -50,9 +90,9 @@ impl Epub {
             .attribute("full-path")
             .unwrap();
 
-        // manifest - paths
-        // spine - order
-        // toc - names
+        // manifest - resource paths
+        // spine - chapter list
+        // toc - chapter names, may have fewer items than spine
         let mut manifest = HashMap::new();
         let xml = self.get_text(path);
         let doc = Document::parse(&xml).unwrap();
@@ -149,34 +189,32 @@ impl Epub {
     }
 }
 
-fn wrap(text: Vec<String>, width: u16) -> Vec<String> {
+fn wrap(text: String, width: u16) -> Vec<String> {
     // XXX assumes a char is 1 unit wide
     // TODO break at dash/hyphen
-    let mut wrapped = Vec::with_capacity(text.len() * 2);
+    let mut wrapped = Vec::new();
 
-    for chunk in text {
-        let mut start = 0;
-        let mut space = 0;
-        let mut line = 0;
-        let mut word = 0;
+    let mut start = 0;
+    let mut space = 0;
+    let mut line = 0;
+    let mut word = 0;
 
-        for (i, c) in chunk.char_indices() {
-            if c == ' ' {
-                space = i;
-                word = 0;
-            } else {
-                word += 1;
-            }
-            if line == width {
-                wrapped.push(String::from(&chunk[start..space]));
-                start = space + 1;
-                line = word;
-            } else {
-                line += 1;
-            }
+    for (i, c) in text.char_indices() {
+        if c == ' ' {
+            space = i;
+            word = 0;
+        } else {
+            word += 1;
         }
-        wrapped.push(String::from(&chunk[start..]));
+        if line == width {
+            wrapped.push(String::from(&text[start..space]));
+            start = space + 1;
+            line = word;
+        } else {
+            line += 1;
+        }
     }
+    wrapped.push(String::from(&text[start..]));
     wrapped
 }
 
@@ -268,47 +306,15 @@ impl Bk {
     fn get_chapter(&mut self, idx: usize) {
         let xml = self.epub.get_text(&self.toc[idx].1);
         let doc = Document::parse(&xml).unwrap();
-
+        let body = doc.root_element().last_element_child().unwrap();
         let mut chapter = Vec::new();
-        for n in doc.descendants() {
-            match n.tag_name().name() {
-                "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-                    let text: String = n
-                        .descendants()
-                        .filter(|n| n.is_text())
-                        .map(|n| n.text().unwrap())
-                        .collect();
-                    chapter.push(format!(
-                        "{}{}{}",
-                        Attribute::Bold,
-                        text,
-                        Attribute::Reset
-                    ));
-                    chapter.push(String::from(""));
-                }
-                "p" => {
-                    chapter.push(
-                        n.descendants()
-                            .filter(|n| n.is_text())
-                            .map(|n| n.text().unwrap())
-                            .collect(),
-                    );
-                    chapter.push(String::from(""));
-                }
-                "li" => {
-                    chapter.push(
-                        n.descendants()
-                            .filter(|n| n.is_text())
-                            .map(|n| format!("- {}", n.text().unwrap()))
-                            .collect(),
-                    );
-                    chapter.push(String::from(""));
-                }
-                _ => (),
-            }
+        Epub::render(&mut chapter, body);
+
+        let width = self.cols - (self.pad * 2);
+        self.chapter = Vec::with_capacity(chapter.len() * 2);
+        for line in chapter {
+            self.chapter.append(&mut wrap(line.concat(), width));
         }
-        chapter.pop(); //padding
-        self.chapter = wrap(chapter, self.cols - (self.pad * 2));
         self.chapter_idx = idx;
     }
     fn scroll_down(&mut self, n: usize) {
@@ -494,6 +500,7 @@ impl Bk {
         stdout.flush().unwrap();
     }
     fn render_help(&self) {
+        // TODO const?
         let text = r#"
                    Esc q  Quit
                     F1 ?  Help
