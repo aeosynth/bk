@@ -196,6 +196,10 @@ struct Bk {
 }
 
 struct Position(String, usize, usize);
+enum Direction {
+    Forward,
+    Backward,
+}
 
 impl Bk {
     fn new(pos: &Position, pad: u16) -> Result<Self, Error> {
@@ -323,19 +327,24 @@ impl Bk {
             self.pos = (self.chapter.len() / self.rows) * self.rows;
         }
     }
-    fn really_search(&mut self, forwards: bool) {
-        if forwards {
-            if let Some(pos) = self.chapter[self.pos + 1..]
-                .iter()
-                .position(|s| s.contains(&self.search))
-            {
-                self.pos += pos + 1;
+    fn really_search(&mut self, dir: Direction) {
+        match dir {
+            Direction::Forward => {
+                if let Some(i) = self.chapter[self.pos + 1..]
+                    .iter()
+                    .position(|s| s.contains(&self.search))
+                {
+                    self.pos += i + 1;
+                }
             }
-        } else if let Some(pos) = self.chapter[0..self.pos - 1]
-            .iter()
-            .rposition(|s| s.contains(&self.search))
-        {
-            self.pos = pos;
+            Direction::Backward => {
+                if let Some(i) = self.chapter[..self.pos]
+                    .iter()
+                    .rposition(|s| s.contains(&self.search))
+                {
+                    self.pos = i;
+                }
+            }
         }
     }
     fn match_search(&mut self, kc: KeyCode) {
@@ -346,7 +355,7 @@ impl Bk {
             }
             KeyCode::Enter => {
                 self.mode = Mode::Read;
-                self.really_search(true);
+                self.really_search(Direction::Forward);
             }
             KeyCode::Char(c) => {
                 self.search.push(c);
@@ -401,10 +410,10 @@ impl Bk {
                 self.mode = Mode::Search;
             }
             KeyCode::Char('N') => {
-                self.really_search(false);
+                self.really_search(Direction::Backward);
             }
             KeyCode::Char('n') => {
-                self.really_search(true);
+                self.really_search(Direction::Forward);
             }
             KeyCode::End | KeyCode::Char('G') => {
                 self.pos = (self.chapter.len() / self.rows) * self.rows;
@@ -499,8 +508,8 @@ PageDown Right Space f l  Page Down
                     Up k  Line Up
                   Home g  Chapter Start
                    End G  Chapter End
-                       n  Search Forwards
-                       N  Search Backwards
+                       n  Search Forward
+                       N  Search Backward
                    "#;
 
         let mut stdout = stdout();
