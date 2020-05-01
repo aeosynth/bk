@@ -1,5 +1,5 @@
 # bk
-bk is a WIP terminal epub reader
+bk is a WIP terminal epub reader. currently only tested on linux.
 
 # install
 

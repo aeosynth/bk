@@ -12,13 +12,6 @@ use crossterm::{
 
 use roxmltree::Document;
 
-enum Mode {
-    Help,
-    Nav,
-    Read,
-    Search,
-}
-
 struct Epub {
     container: zip::ZipArchive<File>,
 }
@@ -38,7 +31,7 @@ impl Epub {
                 let last = acc.last_mut().unwrap();
                 last.push(text);
             }
-            return
+            return;
         }
 
         match n.tag_name().name() {
@@ -181,7 +174,7 @@ impl Epub {
             .into_iter()
             .enumerate()
             .map(|(i, path)| {
-                let title = toc.remove(path).unwrap_or(i.to_string());
+                let title = toc.remove(path).unwrap_or_else(|| i.to_string());
                 let path = rootdir.join(path).to_str().unwrap().to_string();
                 (title, path)
             })
@@ -218,6 +211,20 @@ fn wrap(text: String, width: u16) -> Vec<String> {
     wrapped
 }
 
+struct Position(String, usize, usize);
+
+enum Direction {
+    Forward,
+    Backward,
+}
+
+enum Mode {
+    Help,
+    Nav,
+    Read,
+    Search,
+}
+
 struct Bk {
     mode: Mode,
     epub: Epub,
@@ -233,16 +240,9 @@ struct Bk {
     search: String,
 }
 
-struct Position(String, usize, usize);
-enum Direction {
-    Forward,
-    Backward,
-}
-
 impl Bk {
-    fn new(pos: &Position, pad: u16) -> Result<Self, Error> {
+    fn new(mut epub: Epub, pos: &Position, pad: u16) -> Self {
         let (cols, rows) = terminal::size().unwrap();
-        let mut epub = Epub::new(&pos.0)?;
         let mut bk = Bk {
             mode: Mode::Read,
             chapter: Vec::new(),
@@ -258,7 +258,7 @@ impl Bk {
             search: String::new(),
         };
         bk.get_chapter(pos.1);
-        Ok(bk)
+        bk
     }
     fn run(&mut self) -> crossterm::Result<()> {
         let mut stdout = stdout();
@@ -575,11 +575,12 @@ fn main() {
         std::process::exit(1);
     });
 
-    let mut bk = Bk::new(&pos, 3).unwrap_or_else(|e| {
+    let epub = Epub::new(&pos.0).unwrap_or_else(|e| {
         println!("error reading epub: {}", e);
         std::process::exit(1);
     });
 
+    let mut bk = Bk::new(epub, &pos, 3);
     bk.run().unwrap();
 
     std::fs::write(
