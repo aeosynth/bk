@@ -218,15 +218,200 @@ enum Direction {
     Backward,
 }
 
-enum Mode {
-    Help,
-    Nav,
-    Read,
-    Search,
+trait View {
+    fn run(&self, bk: &mut Bk, kc: KeyCode);
+    fn render(&self, bk: &Bk);
 }
 
-struct Bk {
-    mode: Mode,
+struct Help;
+impl View for Help {
+    fn run(&self, bk: &mut Bk, _: KeyCode) {
+        bk.mode = &Page;
+    }
+    fn render(&self, _: &Bk) {
+        let text = r#"
+                   Esc q  Quit
+                    F1 ?  Help
+                       /  Search
+                     Tab  Table of Contents
+
+PageDown Right Space f l  Page Down
+         PageUp Left b h  Page Up
+                       d  Half Page Down
+                       u  Half Page Up
+                  Down j  Line Down
+                    Up k  Line Up
+                  Home g  Chapter Start
+                   End G  Chapter End
+                       n  Search Forward
+                       N  Search Backward
+                   "#;
+
+        let mut stdout = stdout();
+        queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
+        for (i, line) in text.lines().enumerate() {
+            queue!(stdout, cursor::MoveTo(0, i as u16), Print(line)).unwrap();
+        }
+    }
+}
+
+struct Nav;
+impl View for Nav {
+    fn run(&self, bk: &mut Bk, kc: KeyCode) {
+        match kc {
+            KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('q') => {
+                bk.mode = &Page;
+            }
+            KeyCode::Enter | KeyCode::Tab | KeyCode::Char('l') => {
+                bk.get_chapter(bk.nav_idx);
+                bk.pos = 0;
+                bk.mode = &Page;
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if bk.nav_idx < bk.toc.len() - 1 {
+                    bk.nav_idx += 1;
+                    if bk.nav_idx == bk.nav_top + bk.rows {
+                        bk.nav_top += 1;
+                    }
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if bk.nav_idx > 0 {
+                    if bk.nav_idx == bk.nav_top {
+                        bk.nav_top -= 1;
+                    }
+                    bk.nav_idx -= 1;
+                }
+            }
+            KeyCode::Home | KeyCode::Char('g') => {
+                bk.nav_idx = 0;
+                bk.nav_top = 0;
+            }
+            KeyCode::End | KeyCode::Char('G') => {
+                bk.nav_idx = bk.toc.len() - 1;
+                bk.nav_top = bk.toc.len().saturating_sub(bk.rows);
+            }
+            _ => (),
+        }
+    }
+    fn render(&self, bk: &Bk) {
+        let mut stdout = stdout();
+        queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
+
+        let end = std::cmp::min(bk.nav_top + bk.rows, bk.toc.len());
+        for (i, line) in bk.toc[bk.nav_top..end].iter().enumerate() {
+            let s = if bk.nav_idx == bk.nav_top + i {
+                format!(
+                    "{}{}{}",
+                    Attribute::Reverse,
+                    line.0,
+                    Attribute::Reset
+                )
+            } else {
+                line.0.to_string()
+            };
+            queue!(stdout, cursor::MoveTo(0, i as u16), Print(s)).unwrap();
+        }
+    }
+}
+
+struct Page;
+impl View for Page {
+    fn run(&self, bk: &mut Bk, kc: KeyCode) {
+        match kc {
+            KeyCode::Esc | KeyCode::Char('q') => bk.run = false,
+            KeyCode::Tab => {
+                bk.nav_idx = bk.chapter_idx;
+                bk.nav_top = bk.nav_idx.saturating_sub(bk.rows - 1);
+                bk.mode = &Nav;
+            }
+            KeyCode::F(1) | KeyCode::Char('?') => bk.mode = &Help,
+            KeyCode::Char('/') => {
+                bk.search = String::new();
+                bk.mode = &Search;
+            }
+            KeyCode::Char('N') => {
+                bk.search(Direction::Backward);
+            }
+            KeyCode::Char('n') => {
+                bk.search(Direction::Forward);
+            }
+            KeyCode::End | KeyCode::Char('G') => {
+                bk.pos = (bk.chapter.len() / bk.rows) * bk.rows;
+            }
+            KeyCode::Home | KeyCode::Char('g') => bk.pos = 0,
+            KeyCode::Char('d') => {
+                bk.scroll_down(bk.rows / 2);
+            }
+            KeyCode::Char('u') => {
+                bk.scroll_up(bk.rows / 2);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                bk.scroll_up(1);
+            }
+            KeyCode::Left
+            | KeyCode::PageUp
+            | KeyCode::Char('b')
+            | KeyCode::Char('h') => {
+                bk.scroll_up(bk.rows);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                bk.scroll_down(1);
+            }
+            KeyCode::Right
+            | KeyCode::PageDown
+            | KeyCode::Char('f')
+            | KeyCode::Char('l')
+            | KeyCode::Char(' ') => {
+                bk.scroll_down(bk.rows);
+            }
+            _ => (),
+        }
+    }
+    fn render(&self, bk: &Bk) {
+        let mut stdout = stdout();
+        queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
+
+        let end = std::cmp::min(bk.pos + bk.rows, bk.chapter.len());
+        for (y, line) in bk.chapter[bk.pos..end].iter().enumerate() {
+            queue!(stdout, cursor::MoveTo(bk.pad, y as u16), Print(line))
+                .unwrap();
+        }
+    }
+}
+
+struct Search;
+impl View for Search {
+    fn run(&self, bk: &mut Bk, kc: KeyCode) {
+        match kc {
+            KeyCode::Esc => {
+                bk.search = String::new();
+                bk.mode = &Page;
+            }
+            KeyCode::Enter => {
+                bk.search(Direction::Forward);
+                bk.mode = &Page;
+            }
+            KeyCode::Char(c) => {
+                bk.search.push(c);
+            }
+            _ => (),
+        }
+    }
+    fn render(&self, bk: &Bk) {
+        let mut stdout = stdout();
+        queue!(
+            stdout,
+            cursor::MoveTo(0, bk.rows as u16),
+            terminal::Clear(ClearType::CurrentLine),
+            Print(&bk.search)
+        )
+        .unwrap();
+    }
+}
+
+struct Bk<'a> {
+    mode: &'a dyn View,
     epub: Epub,
     cols: u16,
     chapter: Vec<String>,
@@ -238,13 +423,15 @@ struct Bk {
     toc: Vec<(String, String)>,
     pad: u16,
     search: String,
+    run: bool,
 }
 
-impl Bk {
+impl Bk<'_> {
     fn new(mut epub: Epub, pos: &Position, pad: u16) -> Self {
         let (cols, rows) = terminal::size().unwrap();
         let mut bk = Bk {
-            mode: Mode::Read,
+            run: true,
+            mode: &Page,
             chapter: Vec::new(),
             chapter_idx: 0,
             nav_idx: 0,
@@ -266,28 +453,15 @@ impl Bk {
             stdout,
             terminal::EnterAlternateScreen,
             cursor::Hide,
-            //event::EnableMouseCapture
         )?;
         terminal::enable_raw_mode()?;
 
-        loop {
-            match self.mode {
-                Mode::Read => self.render_read(),
-                Mode::Help => self.render_help(),
-                Mode::Nav => self.render_nav(),
-                Mode::Search => self.render_search(),
-            }
+        while self.run {
+            self.mode.render(self);
+            stdout.flush().unwrap();
+
             match event::read()? {
-                Event::Key(e) => match self.mode {
-                    Mode::Read => {
-                        if self.match_read(e.code) {
-                            break;
-                        }
-                    }
-                    Mode::Help => self.mode = Mode::Read,
-                    Mode::Nav => self.match_nav(e.code),
-                    Mode::Search => self.match_search(e.code),
-                },
+                Event::Key(e) => self.mode.run(self, e.code),
                 Event::Resize(cols, rows) => {
                     self.cols = cols;
                     self.rows = rows as usize;
@@ -302,7 +476,6 @@ impl Bk {
             stdout,
             terminal::LeaveAlternateScreen,
             cursor::Show,
-            //event::DisableMouseCapture
         )?;
         //stdout.flush()?;
         terminal::disable_raw_mode()
@@ -337,7 +510,7 @@ impl Bk {
             self.pos = (self.chapter.len() / self.rows) * self.rows;
         }
     }
-    fn really_search(&mut self, dir: Direction) {
+    fn search(&mut self, dir: Direction) {
         match dir {
             Direction::Forward => {
                 if let Some(i) = self.chapter[self.pos + 1..]
@@ -356,181 +529,6 @@ impl Bk {
                 }
             }
         }
-    }
-    fn match_search(&mut self, kc: KeyCode) {
-        match kc {
-            KeyCode::Esc => {
-                self.search = String::new();
-                self.mode = Mode::Read;
-            }
-            KeyCode::Enter => {
-                self.mode = Mode::Read;
-                self.really_search(Direction::Forward);
-            }
-            KeyCode::Char(c) => {
-                self.search.push(c);
-            }
-            _ => (),
-        }
-    }
-    fn match_nav(&mut self, kc: KeyCode) {
-        match kc {
-            KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('q') => {
-                self.mode = Mode::Read
-            }
-            KeyCode::Enter | KeyCode::Tab | KeyCode::Char('l') => {
-                self.get_chapter(self.nav_idx);
-                self.pos = 0;
-                self.mode = Mode::Read;
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.nav_idx < self.toc.len() - 1 {
-                    self.nav_idx += 1;
-                    if self.nav_idx == self.nav_top + self.rows {
-                        self.nav_top += 1;
-                    }
-                }
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.nav_idx > 0 {
-                    if self.nav_idx == self.nav_top {
-                        self.nav_top -= 1;
-                    }
-                    self.nav_idx -= 1;
-                }
-            }
-            KeyCode::Home | KeyCode::Char('g') => {
-                self.nav_idx = 0;
-                self.nav_top = 0;
-            }
-            KeyCode::End | KeyCode::Char('G') => {
-                self.nav_idx = self.toc.len() - 1;
-                self.nav_top = self.toc.len().saturating_sub(self.rows);
-            }
-            _ => (),
-        }
-    }
-    fn match_read(&mut self, kc: KeyCode) -> bool {
-        match kc {
-            KeyCode::Esc | KeyCode::Char('q') => return true,
-            KeyCode::Tab => self.start_nav(),
-            KeyCode::F(1) | KeyCode::Char('?') => self.mode = Mode::Help,
-            KeyCode::Char('/') => {
-                self.search = String::new();
-                self.mode = Mode::Search;
-            }
-            KeyCode::Char('N') => {
-                self.really_search(Direction::Backward);
-            }
-            KeyCode::Char('n') => {
-                self.really_search(Direction::Forward);
-            }
-            KeyCode::End | KeyCode::Char('G') => {
-                self.pos = (self.chapter.len() / self.rows) * self.rows;
-            }
-            KeyCode::Home | KeyCode::Char('g') => self.pos = 0,
-            KeyCode::Char('d') => {
-                self.scroll_down(self.rows / 2);
-            }
-            KeyCode::Char('u') => {
-                self.scroll_up(self.rows / 2);
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.scroll_up(1);
-            }
-            KeyCode::Left
-            | KeyCode::PageUp
-            | KeyCode::Char('b')
-            | KeyCode::Char('h') => {
-                self.scroll_up(self.rows);
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.scroll_down(1);
-            }
-            KeyCode::Right
-            | KeyCode::PageDown
-            | KeyCode::Char('f')
-            | KeyCode::Char('l')
-            | KeyCode::Char(' ') => {
-                self.scroll_down(self.rows);
-            }
-            _ => (),
-        }
-        false
-    }
-    fn render_search(&self) {
-        let mut stdout = stdout();
-        queue!(
-            stdout,
-            cursor::MoveTo(0, self.rows as u16),
-            terminal::Clear(ClearType::CurrentLine),
-            Print(&self.search)
-        )
-        .unwrap();
-        stdout.flush().unwrap();
-    }
-    fn start_nav(&mut self) {
-        self.nav_idx = self.chapter_idx;
-        self.nav_top = self.nav_idx.saturating_sub(self.rows - 1);
-        self.mode = Mode::Nav;
-    }
-    fn render_nav(&self) {
-        let mut stdout = stdout();
-        queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
-
-        let end = std::cmp::min(self.nav_top + self.rows, self.toc.len());
-        for (i, line) in self.toc[self.nav_top..end].iter().enumerate() {
-            let s = if self.nav_idx == self.nav_top + i {
-                format!(
-                    "{}{}{}",
-                    Attribute::Reverse,
-                    line.0,
-                    Attribute::Reset
-                )
-            } else {
-                line.0.to_string()
-            };
-            queue!(stdout, cursor::MoveTo(0, i as u16), Print(s)).unwrap();
-        }
-        stdout.flush().unwrap();
-    }
-    fn render_help(&self) {
-        // TODO const?
-        let text = r#"
-                   Esc q  Quit
-                    F1 ?  Help
-                       /  Search
-                     Tab  Table of Contents
-
-PageDown Right Space f l  Page Down
-         PageUp Left b h  Page Up
-                       d  Half Page Down
-                       u  Half Page Up
-                  Down j  Line Down
-                    Up k  Line Up
-                  Home g  Chapter Start
-                   End G  Chapter End
-                       n  Search Forward
-                       N  Search Backward
-                   "#;
-
-        let mut stdout = stdout();
-        queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
-        for (i, line) in text.lines().enumerate() {
-            queue!(stdout, cursor::MoveTo(0, i as u16), Print(line)).unwrap();
-        }
-        stdout.flush().unwrap();
-    }
-    fn render_read(&self) {
-        let mut stdout = stdout();
-        queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
-
-        let end = std::cmp::min(self.pos + self.rows, self.chapter.len());
-        for (y, line) in self.chapter[self.pos..end].iter().enumerate() {
-            queue!(stdout, cursor::MoveTo(self.pad, y as u16), Print(line))
-                .unwrap();
-        }
-        stdout.flush().unwrap();
     }
 }
 
