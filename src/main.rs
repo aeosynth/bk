@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{stdout, Error, Read, Write};
+use std::io::{stdout, Read, Write};
 
 use crossterm::{
     cursor,
@@ -17,7 +17,7 @@ struct Epub {
 }
 
 impl Epub {
-    fn new(path: &str) -> Result<Self, Error> {
+    fn new(path: &str) -> std::io::Result<Self> {
         let file = File::open(path)?;
 
         Ok(Epub {
@@ -270,8 +270,13 @@ impl Bk {
         )?;
         terminal::enable_raw_mode()?;
 
-        self.render();
         loop {
+            match self.mode {
+                Mode::Read => self.render_read(),
+                Mode::Help => self.render_help(),
+                Mode::Nav => self.render_nav(),
+                Mode::Search => self.render_search(),
+            }
             match event::read()? {
                 Event::Key(e) => match self.mode {
                     Mode::Read => {
@@ -291,7 +296,6 @@ impl Bk {
                 // TODO
                 Event::Mouse(_) => (),
             }
-            self.render();
         }
 
         queue!(
@@ -300,7 +304,7 @@ impl Bk {
             cursor::Show,
             //event::DisableMouseCapture
         )?;
-        stdout.flush()?;
+        //stdout.flush()?;
         terminal::disable_raw_mode()
     }
     fn get_chapter(&mut self, idx: usize) {
@@ -454,14 +458,6 @@ impl Bk {
         }
         false
     }
-    fn render(&self) {
-        match self.mode {
-            Mode::Read => self.render_read(),
-            Mode::Help => self.render_help(),
-            Mode::Nav => self.render_nav(),
-            Mode::Search => self.render_search(),
-        }
-    }
     fn render_search(&self) {
         let mut stdout = stdout();
         queue!(
@@ -480,7 +476,7 @@ impl Bk {
     }
     fn render_nav(&self) {
         let mut stdout = stdout();
-        queue!(stdout, terminal::Clear(ClearType::All),).unwrap();
+        queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
 
         let end = std::cmp::min(self.nav_top + self.rows, self.toc.len());
         for (i, line) in self.toc[self.nav_top..end].iter().enumerate() {
@@ -496,7 +492,6 @@ impl Bk {
             };
             queue!(stdout, cursor::MoveTo(0, i as u16), Print(s)).unwrap();
         }
-
         stdout.flush().unwrap();
     }
     fn render_help(&self) {
@@ -520,7 +515,7 @@ PageDown Right Space f l  Page Down
                    "#;
 
         let mut stdout = stdout();
-        queue!(stdout, terminal::Clear(ClearType::All),).unwrap();
+        queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
         for (i, line) in text.lines().enumerate() {
             queue!(stdout, cursor::MoveTo(0, i as u16), Print(line)).unwrap();
         }
@@ -581,6 +576,7 @@ fn main() {
     });
 
     let mut bk = Bk::new(epub, &pos, 3);
+    // crossterm really shouldn't error
     bk.run().unwrap();
 
     std::fs::write(
