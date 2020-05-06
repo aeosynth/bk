@@ -184,29 +184,43 @@ impl Epub {
 
 fn wrap(text: String, width: u16) -> Vec<String> {
     // XXX assumes a char is 1 unit wide
-    // TODO break at dash/hyphen
     let mut wrapped = Vec::new();
 
     let mut start = 0;
-    let mut space = 0;
+    let mut brk = 0;
     let mut line = 0;
     let mut word = 0;
+    let mut skip = 0;
 
     for (i, c) in text.char_indices() {
-        if c == ' ' {
-            space = i;
-            word = 0;
-        } else {
-            word += 1;
+        match c {
+            ' ' => {
+                brk = i;
+                skip = 1;
+                word = 0;
+            }
+            // https://www.unicode.org/reports/tr14/
+            // https://en.wikipedia.org/wiki/Line_wrap_and_word_wrap
+            // currently only break at hyphen and em-dash :shrug:
+            '-' | '—' => {
+                brk = i + c.len_utf8();
+                skip = 0;
+                word = 0;
+            }
+            _ => {
+                word += 1;
+            }
         }
+
         if line == width {
-            wrapped.push(String::from(&text[start..space]));
-            start = space + 1;
+            wrapped.push(String::from(&text[start..brk]));
+            start = brk + skip;
             line = word;
         } else {
             line += 1;
         }
     }
+
     wrapped.push(String::from(&text[start..]));
     wrapped
 }
