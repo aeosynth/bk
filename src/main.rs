@@ -7,10 +7,10 @@ use crossterm::{
     event::{self, Event, KeyCode},
     queue,
     style::{Attribute, Print},
-    terminal::{self, ClearType},
+    terminal,
 };
 
-use roxmltree::Document;
+use roxmltree::{Document, Node};
 
 struct Epub {
     container: zip::ZipArchive<File>,
@@ -24,7 +24,7 @@ impl Epub {
             container: zip::ZipArchive::new(file)?,
         })
     }
-    fn render<'a>(acc: &mut Vec<Vec<&'a str>>, n: roxmltree::Node<'a, '_>) {
+    fn render<'a>(acc: &mut Vec<Vec<&'a str>>, n: Node<'a, '_>) {
         if n.is_text() {
             let text = n.text().unwrap();
             if !text.trim().is_empty() {
@@ -83,36 +83,25 @@ impl Epub {
             .attribute("full-path")
             .unwrap();
 
-        // manifest - resource paths
-        // spine - chapter list
-        // toc - chapter names, may have fewer items than spine
-        let mut manifest = HashMap::new();
         let xml = self.get_text(path);
         let doc = Document::parse(&xml).unwrap();
+        let rootdir = std::path::Path::new(&path).parent().unwrap();
+
+        let mut manifest = HashMap::new();
         doc.root_element()
             .children()
             .find(|n| n.has_tag_name("manifest"))
             .unwrap()
             .children()
-            .filter(|n| n.is_element())
+            .filter(Node::is_element)
             .for_each(|n| {
                 manifest.insert(
                     n.attribute("id").unwrap(),
                     n.attribute("href").unwrap(),
                 );
             });
-        let rootdir = std::path::Path::new(&path).parent().unwrap();
-        let paths: Vec<&str> = doc
-            .root_element()
-            .children()
-            .find(|n| n.has_tag_name("spine"))
-            .unwrap()
-            .children()
-            .filter(|n| n.is_element())
-            .map(|n| manifest.remove(n.attribute("idref").unwrap()).unwrap())
-            .collect();
 
-        let mut toc = HashMap::new();
+        let mut nav = HashMap::new();
         if doc.root_element().attribute("version") == Some("3.0") {
             let path = doc
                 .root_element()
@@ -136,10 +125,10 @@ impl Epub {
                     let path = n.attribute("href").unwrap().to_string();
                     let text = n
                         .descendants()
-                        .filter(|n| n.is_text())
+                        .filter(Node::is_text)
                         .map(|n| n.text().unwrap())
                         .collect();
-                    toc.insert(path, text);
+                    nav.insert(path, text);
                 })
         } else {
             let path = manifest.get("ncx").unwrap();
@@ -166,15 +155,21 @@ impl Epub {
                         .text()
                         .unwrap()
                         .to_string();
-                    toc.insert(path, text);
+                    nav.insert(path, text);
                 })
         }
 
-        paths
-            .into_iter()
+        doc.root_element()
+            .children()
+            .find(|n| n.has_tag_name("spine"))
+            .unwrap()
+            .children()
+            .filter(Node::is_element)
             .enumerate()
-            .map(|(i, path)| {
-                let title = toc.remove(path).unwrap_or_else(|| i.to_string());
+            .map(|(i, n)| {
+                let id = n.attribute("idref").unwrap();
+                let path = manifest.remove(id).unwrap();
+                let title = nav.remove(path).unwrap_or_else(|| i.to_string());
                 let path = rootdir.join(path).to_str().unwrap().to_string();
                 (title, path)
             })
@@ -257,12 +252,14 @@ PageDown Right Space f l  Page Down
                     Up k  Line Up
                   Home g  Chapter Start
                    End G  Chapter End
+                       [  Previous Chapter
+                       ]  Next Chapter
                        n  Search Forward
                        N  Search Backward
                    "#;
 
         let mut stdout = stdout();
-        queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
+        queue!(stdout, terminal::Clear(terminal::ClearType::All)).unwrap();
         for (i, line) in text.lines().enumerate() {
             queue!(stdout, cursor::MoveTo(0, i as u16), Print(line)).unwrap();
         }
@@ -310,7 +307,7 @@ impl View for Nav {
     }
     fn render(&self, bk: &Bk) {
         let mut stdout = stdout();
-        queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
+        queue!(stdout, terminal::Clear(terminal::ClearType::All)).unwrap();
 
         let end = std::cmp::min(bk.nav_top + bk.rows, bk.toc.len());
         for (i, line) in bk.toc[bk.nav_top..end].iter().enumerate() {
@@ -379,12 +376,24 @@ impl View for Page {
             | KeyCode::Char(' ') => {
                 bk.scroll_down(bk.rows);
             }
+            KeyCode::Char('[') => {
+                if bk.chapter_idx > 0 {
+                    bk.pos = 0;
+                    bk.get_chapter(bk.chapter_idx - 1);
+                }
+            }
+            KeyCode::Char(']') => {
+                if bk.chapter_idx < bk.toc.len() - 1 {
+                    bk.pos = 0;
+                    bk.get_chapter(bk.chapter_idx + 1);
+                }
+            }
             _ => (),
         }
     }
     fn render(&self, bk: &Bk) {
         let mut stdout = stdout();
-        queue!(stdout, terminal::Clear(ClearType::All)).unwrap();
+        queue!(stdout, terminal::Clear(terminal::ClearType::All)).unwrap();
 
         let end = std::cmp::min(bk.pos + bk.rows, bk.chapter.len());
         for (y, line) in bk.chapter[bk.pos..end].iter().enumerate() {
@@ -417,7 +426,7 @@ impl View for Search {
         queue!(
             stdout,
             cursor::MoveTo(0, bk.rows as u16),
-            terminal::Clear(ClearType::CurrentLine),
+            terminal::Clear(terminal::ClearType::CurrentLine),
             Print(&bk.search)
         )
         .unwrap();

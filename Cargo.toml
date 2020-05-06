@@ -3,6 +3,7 @@ name = "bk"
 version = "0.1.0"
 authors = ["James Campos <james.r.campos@gmail.com>"]
 edition = "2018"
+license = "MIT"
 
 [dependencies]
 crossterm = "0.17"
