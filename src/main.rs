@@ -226,7 +226,7 @@ trait View {
 struct Help;
 impl View for Help {
     fn run(&self, bk: &mut Bk, _: KeyCode) {
-        bk.mode = &Page;
+        bk.view = Some(&Page);
     }
     fn render(&self, _: &Bk) {
         let text = r#"
@@ -260,12 +260,12 @@ impl View for Nav {
     fn run(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('q') => {
-                bk.mode = &Page;
+                bk.view = Some(&Page);
             }
             KeyCode::Enter | KeyCode::Tab | KeyCode::Char('l') => {
                 bk.get_chapter(bk.nav_idx);
                 bk.pos = 0;
-                bk.mode = &Page;
+                bk.view = Some(&Page);
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 if bk.nav_idx < bk.toc.len() - 1 {
@@ -319,16 +319,16 @@ struct Page;
 impl View for Page {
     fn run(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
-            KeyCode::Esc | KeyCode::Char('q') => bk.run = false,
+            KeyCode::Esc | KeyCode::Char('q') => bk.view = None,
             KeyCode::Tab => {
                 bk.nav_idx = bk.chapter_idx;
                 bk.nav_top = bk.nav_idx.saturating_sub(bk.rows - 1);
-                bk.mode = &Nav;
+                bk.view = Some(&Nav);
             }
-            KeyCode::F(1) | KeyCode::Char('?') => bk.mode = &Help,
+            KeyCode::F(1) | KeyCode::Char('?') => bk.view = Some(&Help),
             KeyCode::Char('/') => {
                 bk.search = String::new();
-                bk.mode = &Search;
+                bk.view = Some(&Search);
             }
             KeyCode::Char('N') => {
                 bk.search(Direction::Backward);
@@ -386,11 +386,11 @@ impl View for Search {
         match kc {
             KeyCode::Esc => {
                 bk.search = String::new();
-                bk.mode = &Page;
+                bk.view = Some(&Page);
             }
             KeyCode::Enter => {
                 bk.search(Direction::Forward);
-                bk.mode = &Page;
+                bk.view = Some(&Page);
             }
             KeyCode::Char(c) => {
                 bk.search.push(c);
@@ -411,7 +411,7 @@ impl View for Search {
 }
 
 struct Bk<'a> {
-    mode: &'a dyn View,
+    view: Option<&'a dyn View>,
     epub: Epub,
     cols: u16,
     chapter: Vec<String>,
@@ -423,15 +423,13 @@ struct Bk<'a> {
     toc: Vec<(String, String)>,
     pad: u16,
     search: String,
-    run: bool,
 }
 
 impl Bk<'_> {
     fn new(mut epub: Epub, pos: &Position, pad: u16) -> Self {
         let (cols, rows) = terminal::size().unwrap();
         let mut bk = Bk {
-            run: true,
-            mode: &Page,
+            view: Some(&Page),
             chapter: Vec::new(),
             chapter_idx: 0,
             nav_idx: 0,
@@ -449,19 +447,15 @@ impl Bk<'_> {
     }
     fn run(&mut self) -> crossterm::Result<()> {
         let mut stdout = stdout();
-        queue!(
-            stdout,
-            terminal::EnterAlternateScreen,
-            cursor::Hide,
-        )?;
+        queue!(stdout, terminal::EnterAlternateScreen, cursor::Hide)?;
         terminal::enable_raw_mode()?;
 
-        while self.run {
-            self.mode.render(self);
+        while let Some(view) = self.view {
+            view.render(self);
             stdout.flush().unwrap();
 
             match event::read()? {
-                Event::Key(e) => self.mode.run(self, e.code),
+                Event::Key(e) => view.run(self, e.code),
                 Event::Resize(cols, rows) => {
                     self.cols = cols;
                     self.rows = rows as usize;
@@ -472,11 +466,7 @@ impl Bk<'_> {
             }
         }
 
-        queue!(
-            stdout,
-            terminal::LeaveAlternateScreen,
-            cursor::Show,
-        )?;
+        queue!(stdout, terminal::LeaveAlternateScreen, cursor::Show)?;
         //stdout.flush()?;
         terminal::disable_raw_mode()
     }
