@@ -24,39 +24,39 @@ impl Epub {
             container: zip::ZipArchive::new(file)?,
         })
     }
-    fn render<'a>(acc: &mut Vec<Vec<&'a str>>, n: Node<'a, '_>) {
+    fn render(acc: &mut Vec<String>, n: Node) {
         if n.is_text() {
             let text = n.text().unwrap();
             if !text.trim().is_empty() {
                 let last = acc.last_mut().unwrap();
-                last.push(text);
+                last.push_str(text);
             }
             return;
         }
 
         match n.tag_name().name() {
             "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-                acc.push(vec!["\x1b\x5b1m"]);
+                acc.push(String::from("\x1b\x5b1m"));
                 for c in n.children() {
                     Self::render(acc, c);
                 }
-                acc.push(vec!["\x1b\x5b0m"]);
+                acc.push(String::from("\x1b\x5b0m"));
             }
             "blockquote" | "p" => {
-                acc.push(Vec::new());
+                acc.push(String::new());
                 for c in n.children() {
                     Self::render(acc, c);
                 }
-                acc.push(Vec::new());
+                acc.push(String::new());
             }
             "li" => {
-                acc.push(vec!["- "]);
+                acc.push(String::from("- "));
                 for c in n.children() {
                     Self::render(acc, c);
                 }
-                acc.push(Vec::new());
+                acc.push(String::new());
             }
-            "br" => acc.push(Vec::new()),
+            "br" => acc.push(String::new()),
             _ => {
                 for c in n.children() {
                     Self::render(acc, c);
@@ -376,18 +376,8 @@ impl View for Page {
             | KeyCode::Char(' ') => {
                 bk.scroll_down(bk.rows);
             }
-            KeyCode::Char('[') => {
-                if bk.chapter_idx > 0 {
-                    bk.pos = 0;
-                    bk.get_chapter(bk.chapter_idx - 1);
-                }
-            }
-            KeyCode::Char(']') => {
-                if bk.chapter_idx < bk.toc.len() - 1 {
-                    bk.pos = 0;
-                    bk.get_chapter(bk.chapter_idx + 1);
-                }
-            }
+            KeyCode::Char('[') => bk.prev_chapter(),
+            KeyCode::Char(']') => bk.next_chapter(),
             _ => (),
         }
     }
@@ -503,23 +493,34 @@ impl Bk<'_> {
         let width = self.cols - (self.pad * 2);
         self.chapter = Vec::with_capacity(chapter.len() * 2);
         for line in chapter {
-            self.chapter.append(&mut wrap(line.concat(), width));
+            self.chapter.append(&mut wrap(line, width))
         }
         self.chapter_idx = idx;
+    }
+    fn next_chapter(&mut self) {
+        if self.chapter_idx < self.toc.len() - 1 {
+            self.get_chapter(self.chapter_idx + 1);
+            self.pos = 0;
+        }
+    }
+    fn prev_chapter(&mut self) {
+        if self.chapter_idx > 0 {
+            self.get_chapter(self.chapter_idx - 1);
+            self.pos = 0;
+        }
     }
     fn scroll_down(&mut self, n: usize) {
         if self.rows < self.chapter.len() - self.pos {
             self.pos += n;
-        } else if self.chapter_idx < self.toc.len() - 1 {
-            self.get_chapter(self.chapter_idx + 1);
-            self.pos = 0;
+        } else {
+            self.next_chapter();
         }
     }
     fn scroll_up(&mut self, n: usize) {
         if self.pos > 0 {
             self.pos = self.pos.saturating_sub(n);
-        } else if self.chapter_idx > 0 {
-            self.get_chapter(self.chapter_idx - 1);
+        } else {
+            self.prev_chapter();
             self.pos = (self.chapter.len() / self.rows) * self.rows;
         }
     }
