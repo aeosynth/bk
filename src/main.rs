@@ -229,7 +229,7 @@ enum Direction {
 
 trait View {
     fn run(&self, bk: &mut Bk, kc: KeyCode);
-    fn render(&self, bk: &Bk);
+    fn render(&self, bk: &Bk) -> Vec<String>;
 }
 
 struct Help;
@@ -237,7 +237,7 @@ impl View for Help {
     fn run(&self, bk: &mut Bk, _: KeyCode) {
         bk.view = Some(&Page);
     }
-    fn render(&self, _: &Bk) {
+    fn render(&self, _: &Bk) -> Vec<String> {
         let text = r#"
                    Esc q  Quit
                     F1 ?  Help
@@ -258,11 +258,7 @@ PageDown Right Space f l  Page Down
                        N  Search Backward
                    "#;
 
-        let mut stdout = stdout();
-        queue!(stdout, terminal::Clear(terminal::ClearType::All)).unwrap();
-        for (i, line) in text.lines().enumerate() {
-            queue!(stdout, cursor::MoveTo(0, i as u16), Print(line)).unwrap();
-        }
+        text.lines().map(String::from).collect()
     }
 }
 
@@ -305,24 +301,25 @@ impl View for Nav {
             _ => (),
         }
     }
-    fn render(&self, bk: &Bk) {
-        let mut stdout = stdout();
-        queue!(stdout, terminal::Clear(terminal::ClearType::All)).unwrap();
-
+    fn render(&self, bk: &Bk) -> Vec<String> {
         let end = std::cmp::min(bk.nav_top + bk.rows, bk.toc.len());
-        for (i, line) in bk.toc[bk.nav_top..end].iter().enumerate() {
-            let s = if bk.nav_idx == bk.nav_top + i {
-                format!(
-                    "{}{}{}",
-                    Attribute::Reverse,
-                    line.0,
-                    Attribute::Reset
-                )
-            } else {
-                line.0.to_string()
-            };
-            queue!(stdout, cursor::MoveTo(0, i as u16), Print(s)).unwrap();
-        }
+
+        bk.toc[bk.nav_top..end]
+            .iter()
+            .enumerate()
+            .map(|(i, line)| {
+                if bk.nav_idx == bk.nav_top + i {
+                    format!(
+                        "{}{}{}",
+                        Attribute::Reverse,
+                        line.0,
+                        Attribute::Reset
+                    )
+                } else {
+                    line.0.to_string()
+                }
+            })
+            .collect()
     }
 }
 
@@ -381,15 +378,9 @@ impl View for Page {
             _ => (),
         }
     }
-    fn render(&self, bk: &Bk) {
-        let mut stdout = stdout();
-        queue!(stdout, terminal::Clear(terminal::ClearType::All)).unwrap();
-
+    fn render(&self, bk: &Bk) -> Vec<String> {
         let end = std::cmp::min(bk.pos + bk.rows, bk.chapter.len());
-        for (y, line) in bk.chapter[bk.pos..end].iter().enumerate() {
-            queue!(stdout, cursor::MoveTo(bk.pad, y as u16), Print(line))
-                .unwrap();
-        }
+        bk.chapter[bk.pos..end].iter().map(String::from).collect()
     }
 }
 
@@ -402,24 +393,42 @@ impl View for Search {
                 bk.view = Some(&Page);
             }
             KeyCode::Enter => {
-                bk.search(Direction::Forward);
                 bk.view = Some(&Page);
+            }
+            KeyCode::Backspace => {
+                bk.search.pop();
             }
             KeyCode::Char(c) => {
                 bk.search.push(c);
+                bk.search(Direction::Forward);
             }
             _ => (),
         }
     }
-    fn render(&self, bk: &Bk) {
-        let mut stdout = stdout();
-        queue!(
-            stdout,
-            cursor::MoveTo(0, bk.rows as u16),
-            terminal::Clear(terminal::ClearType::CurrentLine),
-            Print(&bk.search)
-        )
-        .unwrap();
+    fn render(&self, bk: &Bk) -> Vec<String> {
+        let end = std::cmp::min(bk.pos + bk.rows - 1, bk.chapter.len());
+        let mut buf = Vec::with_capacity(bk.rows);
+
+        for line in bk.chapter[bk.pos..end].iter() {
+            if let Some(i) = line.find(&bk.search) {
+                buf.push(format!(
+                    "{}{}{}{}{}",
+                    &line[..i],
+                    Attribute::Reverse,
+                    &bk.search,
+                    Attribute::Reset,
+                    &line[i + bk.search.len()..],
+                ));
+            } else {
+                buf.push(String::from(line));
+            }
+        }
+
+        for _ in buf.len()..bk.rows - 1 {
+            buf.push(String::new());
+        }
+        buf.push(format!("/{}", bk.search));
+        buf
     }
 }
 
@@ -464,7 +473,14 @@ impl Bk<'_> {
         terminal::enable_raw_mode()?;
 
         while let Some(view) = self.view {
-            view.render(self);
+            queue!(stdout, terminal::Clear(terminal::ClearType::All))?;
+            for (i, line) in view.render(self).iter().enumerate() {
+                queue!(
+                    stdout,
+                    cursor::MoveTo(self.pad, i as u16),
+                    Print(line)
+                )?;
+            }
             stdout.flush().unwrap();
 
             match event::read()? {
@@ -480,7 +496,6 @@ impl Bk<'_> {
         }
 
         queue!(stdout, terminal::LeaveAlternateScreen, cursor::Show)?;
-        //stdout.flush()?;
         terminal::disable_raw_mode()
     }
     fn get_chapter(&mut self, idx: usize) {
@@ -527,11 +542,11 @@ impl Bk<'_> {
     fn search(&mut self, dir: Direction) {
         match dir {
             Direction::Forward => {
-                if let Some(i) = self.chapter[self.pos + 1..]
+                if let Some(i) = self.chapter[self.pos..]
                     .iter()
                     .position(|s| s.contains(&self.search))
                 {
-                    self.pos += i + 1;
+                    self.pos += i;
                 }
             }
             Direction::Backward => {
