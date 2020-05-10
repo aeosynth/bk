@@ -19,16 +19,15 @@ struct Epub {
 impl Epub {
     fn new(path: &str) -> std::io::Result<Self> {
         let file = File::open(path)?;
-
         Ok(Epub {
             container: zip::ZipArchive::new(file)?,
         })
     }
-    fn render(acc: &mut Vec<String>, n: Node) {
+    fn render(buf: &mut Vec<String>, n: Node) {
         if n.is_text() {
             let text = n.text().unwrap();
             if !text.trim().is_empty() {
-                let last = acc.last_mut().unwrap();
+                let last = buf.last_mut().unwrap();
                 last.push_str(text);
             }
             return;
@@ -36,30 +35,30 @@ impl Epub {
 
         match n.tag_name().name() {
             "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-                acc.push(String::from("\x1b\x5b1m"));
+                buf.push(String::from("\x1b\x5b1m"));
                 for c in n.children() {
-                    Self::render(acc, c);
+                    Self::render(buf, c);
                 }
-                acc.push(String::from("\x1b\x5b0m"));
+                buf.push(String::from("\x1b\x5b0m"));
             }
             "blockquote" | "p" => {
-                acc.push(String::new());
+                buf.push(String::new());
                 for c in n.children() {
-                    Self::render(acc, c);
+                    Self::render(buf, c);
                 }
-                acc.push(String::new());
+                buf.push(String::new());
             }
             "li" => {
-                acc.push(String::from("- "));
+                buf.push(String::from("- "));
                 for c in n.children() {
-                    Self::render(acc, c);
+                    Self::render(buf, c);
                 }
-                acc.push(String::new());
+                buf.push(String::new());
             }
-            "br" => acc.push(String::new()),
+            "br" => buf.push(String::new()),
             _ => {
                 for c in n.children() {
-                    Self::render(acc, c);
+                    Self::render(buf, c);
                 }
             }
         }
@@ -95,10 +94,7 @@ impl Epub {
             .children()
             .filter(Node::is_element)
             .for_each(|n| {
-                manifest.insert(
-                    n.attribute("id").unwrap(),
-                    n.attribute("href").unwrap(),
-                );
+                manifest.insert(n.attribute("id").unwrap(), n.attribute("href").unwrap());
             });
 
         let mut nav = HashMap::new();
@@ -266,10 +262,10 @@ struct Nav;
 impl View for Nav {
     fn run(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
-            KeyCode::Esc | KeyCode::Char('h') | KeyCode::Char('q') => {
+            KeyCode::Esc | KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('q') => {
                 bk.view = Some(&Page);
             }
-            KeyCode::Enter | KeyCode::Tab | KeyCode::Char('l') => {
+            KeyCode::Enter | KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 bk.get_chapter(bk.nav_idx);
                 bk.pos = 0;
                 bk.view = Some(&Page);
@@ -309,12 +305,7 @@ impl View for Nav {
             .enumerate()
             .map(|(i, line)| {
                 if bk.nav_idx == bk.nav_top + i {
-                    format!(
-                        "{}{}{}",
-                        Attribute::Reverse,
-                        line.0,
-                        Attribute::Reset
-                    )
+                    format!("{}{}{}", Attribute::Reverse, line.0, Attribute::Reset)
                 } else {
                     line.0.to_string()
                 }
@@ -357,10 +348,7 @@ impl View for Page {
             KeyCode::Up | KeyCode::Char('k') => {
                 bk.scroll_up(1);
             }
-            KeyCode::Left
-            | KeyCode::PageUp
-            | KeyCode::Char('b')
-            | KeyCode::Char('h') => {
+            KeyCode::Left | KeyCode::PageUp | KeyCode::Char('b') | KeyCode::Char('h') => {
                 bk.scroll_up(bk.rows);
             }
             KeyCode::Down | KeyCode::Char('j') => {
@@ -475,11 +463,7 @@ impl Bk<'_> {
         while let Some(view) = self.view {
             queue!(stdout, terminal::Clear(terminal::ClearType::All))?;
             for (i, line) in view.render(self).iter().enumerate() {
-                queue!(
-                    stdout,
-                    cursor::MoveTo(self.pad, i as u16),
-                    Print(line)
-                )?;
+                queue!(stdout, cursor::MoveTo(self.pad, i as u16), Print(line))?;
             }
             stdout.flush().unwrap();
 
@@ -502,12 +486,12 @@ impl Bk<'_> {
         let xml = self.epub.get_text(&self.toc[idx].1);
         let doc = Document::parse(&xml).unwrap();
         let body = doc.root_element().last_element_child().unwrap();
-        let mut chapter = Vec::new();
-        Epub::render(&mut chapter, body);
+        let mut buf = Vec::new();
+        Epub::render(&mut buf, body);
 
         let width = self.cols - (self.pad * 2);
-        self.chapter = Vec::with_capacity(chapter.len() * 2);
-        for line in chapter {
+        self.chapter = Vec::with_capacity(buf.len() * 2);
+        for line in buf {
             self.chapter.append(&mut wrap(line, width))
         }
         self.chapter_idx = idx;
@@ -563,8 +547,7 @@ impl Bk<'_> {
 
 fn restore() -> Option<Position> {
     let path = std::env::args().nth(1);
-    let save_path =
-        format!("{}/.local/share/bk", std::env::var("HOME").unwrap());
+    let save_path = format!("{}/.local/share/bk", std::env::var("HOME").unwrap());
     let save = std::fs::read_to_string(save_path);
 
     let get_save = |s: String| {
