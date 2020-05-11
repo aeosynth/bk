@@ -12,16 +12,37 @@ use crossterm::{
 
 use roxmltree::{Document, Node};
 
+struct Link {
+    path: String,
+    label: String,
+}
+
 struct Epub {
     container: zip::ZipArchive<File>,
+    nav: Vec<Link>,
+    pages: Vec<Vec<String>>,
 }
 
 impl Epub {
     fn new(path: &str) -> std::io::Result<Self> {
         let file = File::open(path)?;
-        Ok(Epub {
+        let mut epub = Epub {
             container: zip::ZipArchive::new(file)?,
-        })
+            nav: Vec::new(),
+            pages: Vec::new(),
+        };
+        let nav = epub.get_nav();
+        epub.pages = Vec::with_capacity(nav.len());
+        for link in &nav {
+            let xml = epub.get_text(&link.path);
+            let doc = Document::parse(&xml).unwrap();
+            let body = doc.root_element().last_element_child().unwrap();
+            let mut page = Vec::new();
+            Epub::render(&mut page, body);
+            epub.pages.push(page);
+        }
+        epub.nav = nav;
+        Ok(epub)
     }
     fn render(buf: &mut Vec<String>, n: Node) {
         if n.is_text() {
@@ -72,7 +93,7 @@ impl Epub {
             .unwrap();
         text
     }
-    fn get_toc(&mut self) -> Vec<(String, String)> {
+    fn get_nav(&mut self) -> Vec<Link> {
         let xml = self.get_text("META-INF/container.xml");
         let doc = Document::parse(&xml).unwrap();
         let path = doc
@@ -97,6 +118,7 @@ impl Epub {
                 manifest.insert(n.attribute("id").unwrap(), n.attribute("href").unwrap());
             });
 
+        // TODO check if epub3 nav is reliable w/o spine
         let mut nav = HashMap::new();
         if doc.root_element().attribute("version") == Some("3.0") {
             let path = doc
@@ -165,15 +187,15 @@ impl Epub {
             .map(|(i, n)| {
                 let id = n.attribute("idref").unwrap();
                 let path = manifest.remove(id).unwrap();
-                let title = nav.remove(path).unwrap_or_else(|| i.to_string());
+                let label = nav.remove(path).unwrap_or_else(|| i.to_string());
                 let path = rootdir.join(path).to_str().unwrap().to_string();
-                (title, path)
+                Link { path, label }
             })
             .collect()
     }
 }
 
-fn wrap(text: String, width: u16) -> Vec<String> {
+fn wrap(text: &String, width: u16) -> Vec<String> {
     // XXX assumes a char is 1 unit wide
     let mut wrapped = Vec::new();
 
@@ -303,11 +325,11 @@ impl View for Nav {
         bk.toc[bk.nav_top..end]
             .iter()
             .enumerate()
-            .map(|(i, line)| {
+            .map(|(i, link)| {
                 if bk.nav_idx == bk.nav_top + i {
-                    format!("{}{}{}", Attribute::Reverse, line.0, Attribute::Reset)
+                    format!("{}{}{}", Attribute::Reverse, link.label, Attribute::Reset)
                 } else {
-                    line.0.to_string()
+                    link.label.to_string()
                 }
             })
             .collect()
@@ -422,7 +444,7 @@ impl View for Search {
 
 struct Bk<'a> {
     view: Option<&'a dyn View>,
-    epub: Epub,
+    pages: Vec<Vec<String>>,
     cols: u16,
     chapter: Vec<String>,
     chapter_idx: usize,
@@ -430,13 +452,13 @@ struct Bk<'a> {
     nav_top: usize,
     pos: usize,
     rows: usize,
-    toc: Vec<(String, String)>,
+    toc: Vec<Link>,
     pad: u16,
     search: String,
 }
 
 impl Bk<'_> {
-    fn new(mut epub: Epub, pos: &Position, pad: u16) -> Self {
+    fn new(epub: Epub, pos: &Position, pad: u16) -> Self {
         let (cols, rows) = terminal::size().unwrap();
         let mut bk = Bk {
             view: Some(&Page),
@@ -444,8 +466,8 @@ impl Bk<'_> {
             chapter_idx: 0,
             nav_idx: 0,
             nav_top: 0,
-            toc: epub.get_toc(),
-            epub,
+            toc: epub.nav,
+            pages: epub.pages,
             pos: pos.2,
             pad,
             cols,
@@ -483,15 +505,10 @@ impl Bk<'_> {
         terminal::disable_raw_mode()
     }
     fn get_chapter(&mut self, idx: usize) {
-        let xml = self.epub.get_text(&self.toc[idx].1);
-        let doc = Document::parse(&xml).unwrap();
-        let body = doc.root_element().last_element_child().unwrap();
-        let mut buf = Vec::new();
-        Epub::render(&mut buf, body);
-
         let width = self.cols - (self.pad * 2);
-        self.chapter = Vec::with_capacity(buf.len() * 2);
-        for line in buf {
+        let page = &self.pages[idx];
+        self.chapter = Vec::with_capacity(page.len() * 2);
+        for line in page {
             self.chapter.append(&mut wrap(line, width))
         }
         self.chapter_idx = idx;
