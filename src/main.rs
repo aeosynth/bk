@@ -9,7 +9,6 @@ use crossterm::{
 };
 
 mod epub;
-use epub::Epub;
 
 fn wrap(text: &str, width: usize) -> Vec<(usize, String)> {
     // XXX assumes a char is 1 unit wide
@@ -301,9 +300,10 @@ struct Bk<'a> {
 }
 
 impl Bk<'_> {
-    fn new(epub: Epub, line: &Position, max_width: u16) -> Self {
+    fn new(epub: epub::Epub, line: &Position, max_width: u16) -> Self {
         let (cols, rows) = terminal::size().unwrap();
         let width = std::cmp::min(cols, max_width) as usize;
+
         let mut chapters = Vec::with_capacity(epub.chapters.len());
         for text in epub.chapters {
             let wrap = wrap(&text, width);
@@ -467,7 +467,7 @@ fn main() {
         std::process::exit(1);
     });
 
-    let epub = Epub::new(&line.0).unwrap_or_else(|e| {
+    let epub = epub::Epub::new(&line.0).unwrap_or_else(|e| {
         println!("error reading epub: {}", e);
         std::process::exit(1);
     });

@@ -28,7 +28,6 @@ impl Epub {
             // UnknownEntityReference for HTML entities
             let doc = Document::parse(&xml).unwrap();
             let body = doc.root_element().last_element_child().unwrap();
-            // XXX no initial string, buf.last is none
             let mut chapter = String::new();
             Epub::render(&mut chapter, body);
             epub.chapters.push(chapter);
