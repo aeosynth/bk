@@ -7,7 +7,7 @@ use roxmltree::{Document, Node};
 pub struct Epub {
     container: zip::ZipArchive<File>,
     pub nav: Vec<String>,
-    pub pages: Vec<Vec<String>>,
+    pub chapters: Vec<String>,
 }
 
 impl Epub {
@@ -16,55 +16,57 @@ impl Epub {
         let mut epub = Epub {
             container: zip::ZipArchive::new(file)?,
             nav: Vec::new(),
-            pages: Vec::new(),
+            chapters: Vec::new(),
         };
         let nav = epub.get_nav();
         epub.nav.reserve_exact(nav.len());
-        epub.pages.reserve_exact(nav.len());
+        epub.chapters.reserve_exact(nav.len());
         for (path, label) in nav {
             epub.nav.push(label);
             let xml = epub.get_text(&path);
+            // https://github.com/RazrFalcon/roxmltree/issues/12
+            // UnknownEntityReference for HTML entities
             let doc = Document::parse(&xml).unwrap();
             let body = doc.root_element().last_element_child().unwrap();
-            let mut page = Vec::new();
-            Epub::render(&mut page, body);
-            epub.pages.push(page);
+            // XXX no initial string, buf.last is none
+            let mut chapter = String::new();
+            Epub::render(&mut chapter, body);
+            epub.chapters.push(chapter);
         }
         Ok(epub)
     }
-    fn render(buf: &mut Vec<String>, n: Node) {
+    fn render(buf: &mut String, n: Node) {
         if n.is_text() {
             let text = n.text().unwrap();
             if !text.trim().is_empty() {
-                let last = buf.last_mut().unwrap();
-                last.push_str(text);
+                buf.push_str(text);
             }
             return;
         }
 
         match n.tag_name().name() {
             "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-                buf.push(String::from("\x1b\x5b1m"));
+                buf.push_str("\n\x1b\x5b1m");
                 for c in n.children() {
                     Self::render(buf, c);
                 }
-                buf.push(String::from("\x1b\x5b0m"));
+                buf.push_str("\x1b\x5b0m\n");
             }
             "blockquote" | "p" => {
-                buf.push(String::new());
+                buf.push('\n');
                 for c in n.children() {
                     Self::render(buf, c);
                 }
-                buf.push(String::new());
+                buf.push('\n');
             }
             "li" => {
-                buf.push(String::from("- "));
+                buf.push_str("\n- ");
                 for c in n.children() {
                     Self::render(buf, c);
                 }
-                buf.push(String::new());
+                buf.push('\n');
             }
-            "br" => buf.push(String::new()),
+            "br" => buf.push('\n'),
             _ => {
                 for c in n.children() {
                     Self::render(buf, c);
@@ -106,7 +108,6 @@ impl Epub {
                 manifest.insert(n.attribute("id").unwrap(), n.attribute("href").unwrap());
             });
 
-        // TODO check if epub3 nav is reliable w/o spine
         let mut nav = HashMap::new();
         if doc.root_element().attribute("version") == Some("3.0") {
             let path = doc
