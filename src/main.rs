@@ -98,6 +98,7 @@ PageDown Right Space f l  Page Down
                        ]  Next Chapter
                        n  Search Forward
                        N  Search Backward
+                       '  Jump to previous position
                    "#;
 
         text.lines().map(String::from).collect()
@@ -112,6 +113,7 @@ impl View for Nav {
                 bk.view = Some(&Page);
             }
             KeyCode::Enter | KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                bk.jump = (bk.chapter, bk.line);
                 bk.chapter = bk.nav_idx;
                 bk.line = 0;
                 bk.view = Some(&Page);
@@ -173,8 +175,13 @@ impl View for Page {
             KeyCode::F(1) | KeyCode::Char('?') => bk.view = Some(&Help),
             KeyCode::Char('/') => {
                 bk.search = String::new();
-                bk.jump = bk.line;
+                bk.jump = (bk.chapter, bk.line);
                 bk.view = Some(&Search);
+            }
+            KeyCode::Char('\'') => {
+                let jump = (bk.chapter, bk.line);
+                bk.jump();
+                bk.jump = jump;
             }
             KeyCode::Char('N') => {
                 bk.search(Direction::Backward);
@@ -226,7 +233,7 @@ impl View for Search {
     fn run(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             KeyCode::Esc => {
-                bk.line = bk.jump;
+                bk.jump();
                 bk.view = Some(&Page);
             }
             KeyCode::Enter => {
@@ -234,6 +241,7 @@ impl View for Search {
             }
             KeyCode::Backspace => {
                 bk.search.pop();
+                bk.jump();
                 bk.search(Direction::Forward);
             }
             KeyCode::Char(c) => {
@@ -285,7 +293,7 @@ struct Bk<'a> {
     nav_idx: usize,
     nav_top: usize,
     line: usize,
-    jump: usize,
+    jump: (usize, usize),
     rows: usize,
     toc: Vec<String>,
     max_width: u16,
@@ -306,11 +314,11 @@ impl Bk<'_> {
                 lines.push(line);
                 bytes.push(byte);
             }
-            chapters.push(Chapter {text, lines, bytes});
+            chapters.push(Chapter { text, lines, bytes });
         }
 
         Bk {
-            jump: 0,
+            jump: (0, 0),
             view: Some(&Page),
             chapter: line.1,
             nav_idx: 0,
@@ -323,6 +331,11 @@ impl Bk<'_> {
             rows: rows as usize,
             search: String::new(),
         }
+    }
+    fn jump(&mut self) {
+        let (c, l) = self.jump;
+        self.chapter = c;
+        self.line = l;
     }
     fn lines(&self) -> &Vec<String> {
         &self.chapters[self.chapter].lines
@@ -386,30 +399,34 @@ impl Bk<'_> {
         let head = (self.chapter, self.chapters[self.chapter].bytes[self.line]);
         match dir {
             Direction::Forward => {
-                let rest = (self.chapter+1..self.chapters.len()-1).map(|n| (n, 0));
+                let rest = (self.chapter + 1..self.chapters.len() - 1).map(|n| (n, 0));
                 for (c, byte) in std::iter::once(head).chain(rest) {
                     if let Some(index) = self.chapters[c].text[byte..].find(&self.search) {
                         self.line = match self.chapters[c].bytes.binary_search(&(byte + index)) {
                             Ok(n) => n,
-                            Err(n) => n-1,
+                            Err(n) => n - 1,
                         };
                         self.chapter = c;
-                        break;
+                        return;
                     }
                 }
+                self.jump();
             }
             Direction::Backward => {
-                let rest = (0..self.chapter-1).rev().map(|c| (c, self.chapters[c].text.len()));
+                let rest = (0..self.chapter - 1)
+                    .rev()
+                    .map(|c| (c, self.chapters[c].text.len()));
                 for (c, byte) in std::iter::once(head).chain(rest) {
                     if let Some(index) = self.chapters[c].text[..byte].rfind(&self.search) {
                         self.line = match self.chapters[c].bytes.binary_search(&index) {
                             Ok(n) => n,
-                            Err(n) => n-1,
+                            Err(n) => n - 1,
                         };
                         self.chapter = c;
-                        break;
+                        return;
                     }
                 }
+                self.jump();
             }
         }
     }
