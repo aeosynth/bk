@@ -1,5 +1,7 @@
 # bk
-bk is a terminal Epub reader. Currently only Linux is tested, but macOS and Windows support is planned.
+bk is a WIP terminal Epub reader, written in Rust.
+
+bk supports Linux and macOS. Windows runs but doesn't save position on exit.
 
 # Usage
 
@@ -17,14 +19,15 @@ Running `bk` without an argument will load the most recent Epub.
 - Vim bindings
 
 # TODO
-- macOS, Windows
+- fix Windows
 - configuration
 - links
 - better unicode support
 - better html rendering
 - mobi?
+- images?
 - css?
 - gui?
 
-# inspiration
+# Inspiration
 <https://github.com/wustho/epr>

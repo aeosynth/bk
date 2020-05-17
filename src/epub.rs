@@ -18,21 +18,24 @@ impl Epub {
             nav: Vec::new(),
             chapters: Vec::new(),
         };
-        let (nav, chapters) = epub.get_nav().into_iter().filter_map(|(path, label)| {
-            let xml = epub.get_text(&path);
-            // https://github.com/RazrFalcon/roxmltree/issues/12
-            // UnknownEntityReference for HTML entities
-            let doc = Document::parse(&xml).unwrap();
-            let body = doc.root_element().last_element_child().unwrap();
-            let mut chapter = String::new();
-            Epub::render(&mut chapter, body);
-            if chapter.is_empty() {
-                None
-            } else {
-                Some((label, chapter))
-            }
-        })
-        .unzip();
+        let (nav, chapters) = epub
+            .get_nav()
+            .into_iter()
+            .filter_map(|(path, label)| {
+                let xml = epub.get_text(&path);
+                // https://github.com/RazrFalcon/roxmltree/issues/12
+                // UnknownEntityReference for HTML entities
+                let doc = Document::parse(&xml).unwrap();
+                let body = doc.root_element().last_element_child().unwrap();
+                let mut chapter = String::new();
+                Epub::render(&mut chapter, body);
+                if chapter.is_empty() {
+                    None
+                } else {
+                    Some((label, chapter))
+                }
+            })
+            .unzip();
         epub.nav = nav;
         epub.chapters = chapters;
         Ok(epub)
@@ -99,7 +102,7 @@ impl Epub {
         let doc = Document::parse(&xml).unwrap();
         // zip expects unix path even on windows
         let rootdir = match path.rfind('/') {
-            Some(n) => &path[..n+1],
+            Some(n) => &path[..n + 1],
             None => "",
         };
 
