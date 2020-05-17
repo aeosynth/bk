@@ -30,7 +30,7 @@ fn wrap(text: &str, width: usize) -> Vec<(usize, String)> {
             }
             '-' | '—' => {
                 if len > width {
-                    // `end = i + 1` will extend over the margin
+                    // `end = i + len` is a hack that breaks here
                     word += 1;
                 } else {
                     end = i + c.len_utf8();
@@ -62,11 +62,6 @@ fn wrap(text: &str, width: usize) -> Vec<(usize, String)> {
 }
 
 struct Position(String, usize, usize);
-
-enum Direction {
-    Forward,
-    Backward,
-}
 
 trait View {
     fn run(&self, bk: &mut Bk, kc: KeyCode);
@@ -109,36 +104,35 @@ impl View for Nav {
     fn run(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             KeyCode::Esc | KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('q') => {
+                bk.chapter = bk.jump.0;
                 bk.view = Some(&Page);
             }
             KeyCode::Enter | KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-                bk.jump = (bk.chapter, bk.line);
-                bk.chapter = bk.nav_idx;
                 bk.line = 0;
                 bk.view = Some(&Page);
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if bk.nav_idx < bk.toc.len() - 1 {
-                    bk.nav_idx += 1;
-                    if bk.nav_idx == bk.nav_top + bk.rows {
+                if bk.chapter < bk.toc.len() - 1 {
+                    bk.chapter += 1;
+                    if bk.chapter == bk.nav_top + bk.rows {
                         bk.nav_top += 1;
                     }
                 }
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                if bk.nav_idx > 0 {
-                    if bk.nav_idx == bk.nav_top {
+                if bk.chapter > 0 {
+                    if bk.chapter == bk.nav_top {
                         bk.nav_top -= 1;
                     }
-                    bk.nav_idx -= 1;
+                    bk.chapter -= 1;
                 }
             }
             KeyCode::Home | KeyCode::Char('g') => {
-                bk.nav_idx = 0;
+                bk.chapter = 0;
                 bk.nav_top = 0;
             }
             KeyCode::End | KeyCode::Char('G') => {
-                bk.nav_idx = bk.toc.len() - 1;
+                bk.chapter = bk.toc.len() - 1;
                 bk.nav_top = bk.toc.len().saturating_sub(bk.rows);
             }
             _ => (),
@@ -151,7 +145,7 @@ impl View for Nav {
             .iter()
             .enumerate()
             .map(|(i, label)| {
-                if bk.nav_idx == bk.nav_top + i {
+                if bk.chapter == bk.nav_top + i {
                     format!("{}{}{}", Attribute::Reverse, label, Attribute::Reset)
                 } else {
                     label.to_string()
@@ -167,8 +161,8 @@ impl View for Page {
         match kc {
             KeyCode::Esc | KeyCode::Char('q') => bk.view = None,
             KeyCode::Tab => {
-                bk.nav_idx = bk.chapter;
-                bk.nav_top = bk.nav_idx.saturating_sub(bk.rows - 1);
+                bk.nav_top = bk.chapter.saturating_sub(bk.rows - 1);
+                bk.jump = (bk.chapter, bk.line);
                 bk.view = Some(&Nav);
             }
             KeyCode::F(1) | KeyCode::Char('?') => bk.view = Some(&Help),
@@ -227,6 +221,11 @@ impl View for Page {
     }
 }
 
+enum Direction {
+    Forward,
+    Backward,
+}
+
 struct Search;
 impl View for Search {
     fn run(&self, bk: &mut Bk, kc: KeyCode) {
@@ -277,25 +276,33 @@ impl View for Search {
     }
 }
 
+// ideally we could use string slices as pointers, but self referential structs are hard
 struct Chapter {
+    // chapter text as a single string, used for search
     text: String,
+    // line wrapped text
     lines: Vec<String>,
+    // map a line to its position in the chapter
     bytes: Vec<usize>,
 }
 
 struct Bk<'a> {
-    view: Option<&'a dyn View>,
-    chapter: usize,
-    cols: u16,
-    // ideally we could use string slices as pointers, but self referential structs are hard
+    // the book
     chapters: Vec<Chapter>,
-    nav_idx: usize,
-    nav_top: usize,
+    toc: Vec<String>,
+    // position in the book
+    chapter: usize,
     line: usize,
     jump: (usize, usize),
+    // the terminal
+    cols: u16,
     rows: usize,
-    toc: Vec<String>,
+    // user config
     max_width: u16,
+    // views don't have any internal state, which is great except for this single use nav_top
+    // search is also single use, but probably page view should use it
+    view: Option<&'a dyn View>,
+    nav_top: usize,
     search: String,
 }
 
@@ -321,7 +328,6 @@ impl Bk<'_> {
             jump: (0, 0),
             view: Some(&Page),
             chapter: line.1,
-            nav_idx: 0,
             nav_top: 0,
             toc: epub.nav,
             chapters,
@@ -399,8 +405,8 @@ impl Bk<'_> {
         let head = (self.chapter, self.chapters[self.chapter].bytes[self.line]);
         match dir {
             Direction::Forward => {
-                let rest = (self.chapter + 1..self.chapters.len() - 1).map(|n| (n, 0));
-                for (c, byte) in std::iter::once(head).chain(rest) {
+                let tail = (self.chapter + 1..self.chapters.len() - 1).map(|n| (n, 0));
+                for (c, byte) in std::iter::once(head).chain(tail) {
                     if let Some(index) = self.chapters[c].text[byte..].find(&self.search) {
                         self.line = match self.chapters[c].bytes.binary_search(&(byte + index)) {
                             Ok(n) => n,
@@ -413,10 +419,10 @@ impl Bk<'_> {
                 self.jump();
             }
             Direction::Backward => {
-                let rest = (0..self.chapter - 1)
+                let tail = (0..self.chapter - 1)
                     .rev()
                     .map(|c| (c, self.chapters[c].text.len()));
-                for (c, byte) in std::iter::once(head).chain(rest) {
+                for (c, byte) in std::iter::once(head).chain(tail) {
                     if let Some(index) = self.chapters[c].text[..byte].rfind(&self.search) {
                         self.line = match self.chapters[c].bytes.binary_search(&index) {
                             Ok(n) => n,
