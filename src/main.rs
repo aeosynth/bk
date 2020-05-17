@@ -61,8 +61,6 @@ fn wrap(text: &str, width: usize) -> Vec<(usize, String)> {
     lines
 }
 
-struct Position(String, usize, usize);
-
 trait View {
     fn run(&self, bk: &mut Bk, kc: KeyCode);
     fn render(&self, bk: &Bk) -> Vec<String>;
@@ -112,7 +110,7 @@ impl View for Nav {
                 bk.view = Some(&Page);
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if bk.chapter < bk.toc.len() - 1 {
+                if bk.chapter < bk.chapters.len() - 1 {
                     bk.chapter += 1;
                     if bk.chapter == bk.nav_top + bk.rows {
                         bk.nav_top += 1;
@@ -132,23 +130,28 @@ impl View for Nav {
                 bk.nav_top = 0;
             }
             KeyCode::End | KeyCode::Char('G') => {
-                bk.chapter = bk.toc.len() - 1;
-                bk.nav_top = bk.toc.len().saturating_sub(bk.rows);
+                bk.chapter = bk.chapters.len() - 1;
+                bk.nav_top = bk.chapters.len().saturating_sub(bk.rows);
             }
             _ => (),
         }
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
-        let end = std::cmp::min(bk.nav_top + bk.rows, bk.toc.len());
+        let end = std::cmp::min(bk.nav_top + bk.rows, bk.chapters.len());
 
-        bk.toc[bk.nav_top..end]
+        bk.chapters[bk.nav_top..end]
             .iter()
             .enumerate()
-            .map(|(i, label)| {
+            .map(|(i, chapter)| {
                 if bk.chapter == bk.nav_top + i {
-                    format!("{}{}{}", Attribute::Reverse, label, Attribute::Reset)
+                    format!(
+                        "{}{}{}",
+                        Attribute::Reverse,
+                        chapter.title,
+                        Attribute::Reset
+                    )
                 } else {
-                    label.to_string()
+                    chapter.title.to_string()
                 }
             })
             .collect()
@@ -278,6 +281,8 @@ impl View for Search {
 
 // ideally we could use string slices as pointers, but self referential structs are hard
 struct Chapter {
+    // for toc
+    title: String,
     // chapter text as a single string, used for search
     text: String,
     // line wrapped text
@@ -287,14 +292,12 @@ struct Chapter {
 }
 
 struct Bk<'a> {
-    // the book
     chapters: Vec<Chapter>,
-    toc: Vec<String>,
     // position in the book
     chapter: usize,
     line: usize,
     jump: (usize, usize),
-    // the terminal
+    // terminal
     cols: u16,
     rows: usize,
     // user config
@@ -307,12 +310,12 @@ struct Bk<'a> {
 }
 
 impl Bk<'_> {
-    fn new(epub: epub::Epub, line: &Position, max_width: u16) -> Self {
+    fn new(epub: epub::Epub, chapter: usize, line: usize, max_width: u16) -> Self {
         let (cols, rows) = terminal::size().unwrap();
         let width = std::cmp::min(cols, max_width) as usize;
 
         let mut chapters = Vec::with_capacity(epub.chapters.len());
-        for text in epub.chapters {
+        for (title, text) in epub.chapters {
             let wrap = wrap(&text, width);
             let mut lines = Vec::with_capacity(wrap.len());
             let mut bytes = Vec::with_capacity(wrap.len());
@@ -321,20 +324,24 @@ impl Bk<'_> {
                 lines.push(line);
                 bytes.push(byte);
             }
-            chapters.push(Chapter { text, lines, bytes });
+            chapters.push(Chapter {
+                title,
+                text,
+                lines,
+                bytes,
+            });
         }
 
         Bk {
-            jump: (0, 0),
-            view: Some(&Page),
-            chapter: line.1,
-            nav_top: 0,
-            toc: epub.nav,
             chapters,
-            line: line.2,
-            max_width,
+            chapter,
+            line,
+            jump: (0, 0),
             cols,
             rows: rows as usize,
+            max_width,
+            view: Some(&Page),
+            nav_top: 0,
             search: String::new(),
         }
     }
@@ -372,7 +379,7 @@ impl Bk<'_> {
         terminal::disable_raw_mode()
     }
     fn next_chapter(&mut self) {
-        if self.chapter < self.toc.len() - 1 {
+        if self.chapter < self.chapters.len() - 1 {
             self.chapter += 1;
             self.line = 0;
         }
@@ -438,14 +445,13 @@ impl Bk<'_> {
     }
 }
 
-fn restore() -> Option<Position> {
+fn restore(save_path: &str) -> Option<(String, usize, usize)> {
     let path = std::env::args().nth(1);
-    let save_path = format!("{}/.local/share/bk", std::env::var("HOME").unwrap());
     let save = std::fs::read_to_string(save_path);
 
     let get_save = |s: String| {
         let mut lines = s.lines();
-        Position(
+        (
             lines.next().unwrap().to_string(),
             lines.next().unwrap().parse::<usize>().unwrap(),
             lines.next().unwrap().parse::<usize>().unwrap(),
@@ -454,40 +460,39 @@ fn restore() -> Option<Position> {
 
     match (save, path) {
         (Err(_), None) => None,
-        (Err(_), Some(path)) => Some(Position(path, 0, 0)),
+        (Err(_), Some(path)) => Some((path, 0, 0)),
         (Ok(save), None) => Some(get_save(save)),
         (Ok(save), Some(path)) => {
             let save = get_save(save);
-            if save.0 == path {
+            if path == save.0 {
                 Some(save)
             } else {
-                Some(Position(path, 0, 0))
+                Some((path, 0, 0))
             }
         }
     }
 }
 
 fn main() {
-    let line = restore().unwrap_or_else(|| {
+    let save_path = format!("{}/.local/share/bk", std::env::var("HOME").unwrap());
+    let (path, chapter, line) = restore(&save_path).unwrap_or_else(|| {
         println!("usage: bk path");
         std::process::exit(1);
     });
 
-    let epub = epub::Epub::new(&line.0).unwrap_or_else(|e| {
+    let epub = epub::Epub::new(&path).unwrap_or_else(|e| {
         println!("error reading epub: {}", e);
         std::process::exit(1);
     });
 
-    let mut bk = Bk::new(epub, &line, 75);
+    let mut bk = Bk::new(epub, chapter, line, 75);
     // crossterm really shouldn't error
     bk.run().unwrap();
 
-    std::fs::write(
-        format!("{}/.local/share/bk", std::env::var("HOME").unwrap()),
-        format!("{}\n{}\n{}", line.0, bk.chapter, bk.line),
-    )
-    .unwrap_or_else(|e| {
-        println!("error saving position: {}", e);
-        std::process::exit(1);
-    });
+    std::fs::write(save_path, format!("{}\n{}\n{}", path, bk.chapter, bk.line)).unwrap_or_else(
+        |e| {
+            println!("error saving position: {}", e);
+            std::process::exit(1);
+        },
+    );
 }

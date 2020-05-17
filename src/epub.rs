@@ -6,8 +6,7 @@ use roxmltree::{Document, Node};
 
 pub struct Epub {
     container: zip::ZipArchive<File>,
-    pub nav: Vec<String>,
-    pub chapters: Vec<String>,
+    pub chapters: Vec<(String, String)>,
 }
 
 impl Epub {
@@ -15,13 +14,12 @@ impl Epub {
         let file = File::open(path)?;
         let mut epub = Epub {
             container: zip::ZipArchive::new(file)?,
-            nav: Vec::new(),
             chapters: Vec::new(),
         };
-        let (nav, chapters) = epub
+        epub.chapters = epub
             .get_nav()
             .into_iter()
-            .filter_map(|(path, label)| {
+            .filter_map(|(path, title)| {
                 let xml = epub.get_text(&path);
                 // https://github.com/RazrFalcon/roxmltree/issues/12
                 // UnknownEntityReference for HTML entities
@@ -32,12 +30,10 @@ impl Epub {
                 if chapter.is_empty() {
                     None
                 } else {
-                    Some((label, chapter))
+                    Some((title, chapter))
                 }
             })
-            .unzip();
-        epub.nav = nav;
-        epub.chapters = chapters;
+            .collect();
         Ok(epub)
     }
     fn render(buf: &mut String, n: Node) {
