@@ -18,11 +18,7 @@ impl Epub {
             nav: Vec::new(),
             chapters: Vec::new(),
         };
-        let nav = epub.get_nav();
-        epub.nav.reserve_exact(nav.len());
-        epub.chapters.reserve_exact(nav.len());
-        for (path, label) in nav {
-            epub.nav.push(label);
+        let (nav, chapters) = epub.get_nav().into_iter().filter_map(|(path, label)| {
             let xml = epub.get_text(&path);
             // https://github.com/RazrFalcon/roxmltree/issues/12
             // UnknownEntityReference for HTML entities
@@ -30,8 +26,15 @@ impl Epub {
             let body = doc.root_element().last_element_child().unwrap();
             let mut chapter = String::new();
             Epub::render(&mut chapter, body);
-            epub.chapters.push(chapter);
-        }
+            if chapter.is_empty() {
+                None
+            } else {
+                Some((label, chapter))
+            }
+        })
+        .unzip();
+        epub.nav = nav;
+        epub.chapters = chapters;
         Ok(epub)
     }
     fn render(buf: &mut String, n: Node) {
