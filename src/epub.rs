@@ -97,7 +97,11 @@ impl Epub {
 
         let xml = self.get_text(path);
         let doc = Document::parse(&xml).unwrap();
-        let rootdir = std::path::Path::new(&path).parent().unwrap();
+        // zip expects unix path even on windows
+        let rootdir = match path.rfind('/') {
+            Some(n) => &path[..n+1],
+            None => "",
+        };
 
         let mut manifest = HashMap::new();
         doc.root_element()
@@ -122,7 +126,7 @@ impl Epub {
                 .unwrap()
                 .attribute("href")
                 .unwrap();
-            let xml = self.get_text(rootdir.join(path).to_str().unwrap());
+            let xml = self.get_text(&format!("{}{}", rootdir, path));
             let doc = Document::parse(&xml).unwrap();
 
             doc.descendants()
@@ -141,7 +145,7 @@ impl Epub {
                 })
         } else {
             let path = manifest.get("ncx").unwrap();
-            let xml = self.get_text(rootdir.join(path).to_str().unwrap());
+            let xml = self.get_text(&format!("{}{}", rootdir, path));
             let doc = Document::parse(&xml).unwrap();
 
             doc.descendants()
@@ -179,7 +183,7 @@ impl Epub {
                 let id = n.attribute("idref").unwrap();
                 let path = manifest.remove(id).unwrap();
                 let label = nav.remove(path).unwrap_or_else(|| i.to_string());
-                let path = rootdir.join(path).to_str().unwrap().to_string();
+                let path = format!("{}{}", rootdir, path);
                 (path, label)
             })
             .collect()
