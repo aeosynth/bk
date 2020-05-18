@@ -1,4 +1,5 @@
 use std::io::{stdout, Write};
+use std::{cmp::min, env, process::exit};
 
 use crossterm::{
     cursor,
@@ -137,7 +138,7 @@ impl View for Nav {
         }
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
-        let end = std::cmp::min(bk.nav_top + bk.rows, bk.chapters.len());
+        let end = min(bk.nav_top + bk.rows, bk.chapters.len());
 
         bk.chapters[bk.nav_top..end]
             .iter()
@@ -170,7 +171,7 @@ impl View for Page {
             }
             KeyCode::F(1) | KeyCode::Char('?') => bk.view = Some(&Help),
             KeyCode::Char('/') => {
-                bk.search = String::new();
+                bk.query = String::new();
                 bk.jump = (bk.chapter, bk.line);
                 bk.view = Some(&Search);
             }
@@ -219,7 +220,7 @@ impl View for Page {
         }
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
-        let end = std::cmp::min(bk.line + bk.rows, bk.lines().len());
+        let end = min(bk.line + bk.rows, bk.lines().len());
         bk.lines()[bk.line..end].iter().map(String::from).collect()
     }
 }
@@ -241,30 +242,30 @@ impl View for Search {
                 bk.view = Some(&Page);
             }
             KeyCode::Backspace => {
-                bk.search.pop();
+                bk.query.pop();
                 bk.jump();
                 bk.search(Direction::Forward);
             }
             KeyCode::Char(c) => {
-                bk.search.push(c);
+                bk.query.push(c);
                 bk.search(Direction::Forward);
             }
             _ => (),
         }
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
-        let end = std::cmp::min(bk.line + bk.rows - 1, bk.lines().len());
+        let end = min(bk.line + bk.rows - 1, bk.lines().len());
         let mut buf = Vec::with_capacity(bk.rows);
 
         for line in bk.lines()[bk.line..end].iter() {
-            if let Some(i) = line.find(&bk.search) {
+            if let Some(i) = line.find(&bk.query) {
                 buf.push(format!(
                     "{}{}{}{}{}",
                     &line[..i],
                     Attribute::Reverse,
-                    &bk.search,
+                    &bk.query,
                     Attribute::Reset,
-                    &line[i + bk.search.len()..],
+                    &line[i + bk.query.len()..],
                 ));
             } else {
                 buf.push(String::from(line));
@@ -274,21 +275,18 @@ impl View for Search {
         for _ in buf.len()..bk.rows - 1 {
             buf.push(String::new());
         }
-        buf.push(format!("/{}", bk.search));
+        buf.push(format!("/{}", bk.query));
         buf
     }
 }
 
+// search the text to find the byte index of the query, then find the containing line
 // ideally we could use string slices as pointers, but self referential structs are hard
 struct Chapter {
-    // for toc
     title: String,
-    // chapter text as a single string, used for search
     text: String,
-    // line wrapped text
-    lines: Vec<String>,
-    // map a line to its position in the chapter
     bytes: Vec<usize>,
+    lines: Vec<String>,
 }
 
 struct Bk<'a> {
@@ -303,16 +301,16 @@ struct Bk<'a> {
     // user config
     max_width: u16,
     // views don't have any internal state, which is great except for this single use nav_top
-    // search is also single use, but probably page view should use it
+    // query is also single use, but probably page view should use it
     view: Option<&'a dyn View>,
     nav_top: usize,
-    search: String,
+    query: String,
 }
 
 impl Bk<'_> {
     fn new(epub: epub::Epub, chapter: usize, line: usize, max_width: u16) -> Self {
         let (cols, rows) = terminal::size().unwrap();
-        let width = std::cmp::min(cols, max_width) as usize;
+        let width = min(cols, max_width) as usize;
 
         let mut chapters = Vec::with_capacity(epub.chapters.len());
         for (title, text) in epub.chapters {
@@ -342,7 +340,7 @@ impl Bk<'_> {
             max_width,
             view: Some(&Page),
             nav_top: 0,
-            search: String::new(),
+            query: String::new(),
         }
     }
     fn jump(&mut self) {
@@ -414,7 +412,7 @@ impl Bk<'_> {
             Direction::Forward => {
                 let tail = (self.chapter + 1..self.chapters.len() - 1).map(|n| (n, 0));
                 for (c, byte) in std::iter::once(head).chain(tail) {
-                    if let Some(index) = self.chapters[c].text[byte..].find(&self.search) {
+                    if let Some(index) = self.chapters[c].text[byte..].find(&self.query) {
                         self.line = match self.chapters[c].bytes.binary_search(&(byte + index)) {
                             Ok(n) => n,
                             Err(n) => n - 1,
@@ -430,7 +428,7 @@ impl Bk<'_> {
                     .rev()
                     .map(|c| (c, self.chapters[c].text.len()));
                 for (c, byte) in std::iter::once(head).chain(tail) {
-                    if let Some(index) = self.chapters[c].text[..byte].rfind(&self.search) {
+                    if let Some(index) = self.chapters[c].text[..byte].rfind(&self.query) {
                         self.line = match self.chapters[c].bytes.binary_search(&index) {
                             Ok(n) => n,
                             Err(n) => n - 1,
@@ -446,7 +444,7 @@ impl Bk<'_> {
 }
 
 fn restore(save_path: &str) -> Option<(String, usize, usize)> {
-    let path = std::env::args().nth(1);
+    let path = env::args().nth(1);
     let save = std::fs::read_to_string(save_path);
 
     let get_save = |s: String| {
@@ -474,15 +472,19 @@ fn restore(save_path: &str) -> Option<(String, usize, usize)> {
 }
 
 fn main() {
-    let save_path = format!("{}/.local/share/bk", std::env::var("HOME").unwrap());
+    let save_path = if cfg!(windows) {
+        format!("{}\\bk", env::var("APPDATA").unwrap())
+    } else {
+        format!("{}/.local/share/bk", env::var("HOME").unwrap())
+    };
     let (path, chapter, line) = restore(&save_path).unwrap_or_else(|| {
         println!("usage: bk path");
-        std::process::exit(1);
+        exit(1);
     });
 
     let epub = epub::Epub::new(&path).unwrap_or_else(|e| {
         println!("error reading epub: {}", e);
-        std::process::exit(1);
+        exit(1);
     });
 
     let mut bk = Bk::new(epub, chapter, line, 75);
@@ -492,7 +494,7 @@ fn main() {
     std::fs::write(save_path, format!("{}\n{}\n{}", path, bk.chapter, bk.line)).unwrap_or_else(
         |e| {
             println!("error saving position: {}", e);
-            std::process::exit(1);
+            exit(1);
         },
     );
 }
