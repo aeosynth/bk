@@ -456,16 +456,24 @@ fn restore(save_path: &str) -> Option<(String, usize, usize)> {
         )
     };
 
+    let canon = |s: String| {
+        std::fs::canonicalize(s)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string()
+    };
+
     match (save, path) {
         (Err(_), None) => None,
-        (Err(_), Some(path)) => Some((path, 0, 0)),
+        (Err(_), Some(path)) => Some((canon(path), 0, 0)),
         (Ok(save), None) => Some(get_save(save)),
         (Ok(save), Some(path)) => {
             let save = get_save(save);
             if path == save.0 {
                 Some(save)
             } else {
-                Some((path, 0, 0))
+                Some((canon(path), 0, 0))
             }
         }
     }
