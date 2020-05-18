@@ -1,5 +1,5 @@
 use std::io::{stdout, Write};
-use std::{cmp::min, env, process::exit};
+use std::{cmp::min, env, iter, process::exit};
 
 use crossterm::{
     cursor,
@@ -314,6 +314,15 @@ impl Bk<'_> {
 
         let mut chapters = Vec::with_capacity(epub.chapters.len());
         for (title, text) in epub.chapters {
+            let title = if title.chars().count() > width {
+                title
+                    .chars()
+                    .take(width - 1)
+                    .chain(iter::once('…'))
+                    .collect()
+            } else {
+                title
+            };
             let wrap = wrap(&text, width);
             let mut lines = Vec::with_capacity(wrap.len());
             let mut bytes = Vec::with_capacity(wrap.len());
@@ -414,7 +423,7 @@ impl Bk<'_> {
         match dir {
             Direction::Forward => {
                 let tail = (self.chapter + 1..self.chapters.len() - 1).map(|n| (n, 0));
-                for (c, byte) in std::iter::once(head).chain(tail) {
+                for (c, byte) in iter::once(head).chain(tail) {
                     if let Some(index) = self.chapters[c].text[byte..].find(&self.query) {
                         self.line = match self.chapters[c].bytes.binary_search(&(byte + index)) {
                             Ok(n) => n,
@@ -430,7 +439,7 @@ impl Bk<'_> {
                 let tail = (0..self.chapter - 1)
                     .rev()
                     .map(|c| (c, self.chapters[c].text.len()));
-                for (c, byte) in std::iter::once(head).chain(tail) {
+                for (c, byte) in iter::once(head).chain(tail) {
                     if let Some(index) = self.chapters[c].text[..byte].rfind(&self.query) {
                         self.line = match self.chapters[c].bytes.binary_search(&index) {
                             Ok(n) => n,
