@@ -367,8 +367,11 @@ impl Bk<'_> {
 
             match event::read()? {
                 Event::Key(e) => view.run(self, e.code),
+                Event::Resize(cols, rows) => {
+                    self.cols = cols;
+                    self.rows = rows as usize;
+                }
                 // TODO
-                Event::Resize(_, _) => (),
                 Event::Mouse(_) => (),
             }
         }
