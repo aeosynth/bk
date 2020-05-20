@@ -1,5 +1,5 @@
 use std::io::{stdout, Write};
-use std::{cmp::min, env, iter, process::exit};
+use std::{cmp::min, collections::HashMap, env, iter, process::exit};
 
 use crossterm::{
     cursor,
@@ -73,6 +73,35 @@ trait View {
     fn render(&self, bk: &Bk) -> Vec<String>;
 }
 
+// TODO render something useful?
+struct Mark;
+impl View for Mark {
+    fn run(&self, bk: &mut Bk, kc: KeyCode) {
+        match kc {
+            KeyCode::Char(c) => bk.mark(c),
+            _ => (),
+        }
+        bk.view = Some(&Page)
+    }
+    fn render(&self, bk: &Bk) -> Vec<String> {
+        Page::render(&Page, bk)
+    }
+}
+
+struct Jump;
+impl View for Jump {
+    fn run(&self, bk: &mut Bk, kc: KeyCode) {
+        match kc {
+            KeyCode::Char(c) => bk.jump(c),
+            _ => (),
+        }
+        bk.view = Some(&Page);
+    }
+    fn render(&self, bk: &Bk) -> Vec<String> {
+        Page::render(&Page, bk)
+    }
+}
+
 struct Help;
 impl View for Help {
     fn run(&self, bk: &mut Bk, _: KeyCode) {
@@ -99,7 +128,8 @@ PageDown Right Space f l  Page Down
 
                        n  Repeat search forward
                        N  Repeat search backward
-                       '  Jump to previous position
+                      mx  Set mark x
+                      'x  Jump to mark x
                    "#;
 
         text.lines().map(String::from).collect()
@@ -111,7 +141,7 @@ impl View for Nav {
     fn run(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             KeyCode::Esc | KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('q') => {
-                bk.chapter = bk.jump.0;
+                bk.jump('\'');
                 bk.view = Some(&Page);
             }
             KeyCode::Enter | KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
@@ -174,17 +204,14 @@ impl View for Page {
             KeyCode::Esc | KeyCode::Char('q') => bk.view = None,
             KeyCode::Tab => {
                 bk.nav_top = bk.chapter.saturating_sub(bk.rows - 1);
-                bk.jump = (bk.chapter, bk.line);
+                bk.mark('\'');
                 bk.view = Some(&Nav);
             }
             KeyCode::F(_) => bk.view = Some(&Help),
             KeyCode::Char('?') => bk.start_search(Direction::Backward),
             KeyCode::Char('/') => bk.start_search(Direction::Forward),
-            KeyCode::Char('\'') => {
-                let jump = (bk.chapter, bk.line);
-                bk.jump();
-                bk.jump = jump;
-            }
+            KeyCode::Char('m') => bk.view = Some(&Mark),
+            KeyCode::Char('\'') => bk.view = Some(&Jump),
             KeyCode::Char('N') => {
                 bk.search(Direction::Backward);
             }
@@ -194,9 +221,13 @@ impl View for Page {
                 bk.search(Direction::Forward);
             }
             KeyCode::End | KeyCode::Char('G') => {
+                bk.mark('\'');
                 bk.line = bk.lines().len().saturating_sub(bk.rows);
             }
-            KeyCode::Home | KeyCode::Char('g') => bk.line = 0,
+            KeyCode::Home | KeyCode::Char('g') => {
+                bk.mark('\'');
+                bk.line = 0;
+            }
             KeyCode::Char('d') => {
                 bk.scroll_down(bk.rows / 2);
             }
@@ -235,7 +266,7 @@ impl View for Search {
     fn run(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             KeyCode::Esc => {
-                bk.jump();
+                bk.jump('\'');
                 bk.view = Some(&Page);
             }
             KeyCode::Enter => {
@@ -243,13 +274,13 @@ impl View for Search {
             }
             KeyCode::Backspace => {
                 bk.query.pop();
-                bk.jump();
+                bk.jump('\'');
                 bk.search(bk.dir.clone());
             }
             KeyCode::Char(c) => {
                 bk.query.push(c);
                 if !bk.search(bk.dir.clone()) {
-                    bk.jump();
+                    bk.jump('\'');
                 }
             }
             _ => (),
@@ -300,7 +331,7 @@ struct Bk<'a> {
     // position in the book
     chapter: usize,
     line: usize,
-    jump: (usize, usize),
+    mark: HashMap<char, (usize, usize)>,
     // terminal
     cols: u16,
     rows: usize,
@@ -308,9 +339,9 @@ struct Bk<'a> {
     max_width: u16,
     // view state
     view: Option<&'a dyn View>,
+    dir: Direction,
     nav_top: usize,
     query: String,
-    dir: Direction,
 }
 
 impl Bk<'_> {
@@ -349,7 +380,7 @@ impl Bk<'_> {
             chapters,
             chapter,
             line,
-            jump: (0, 0),
+            mark: HashMap::new(),
             cols,
             rows: rows as usize,
             max_width,
@@ -358,14 +389,6 @@ impl Bk<'_> {
             query: String::new(),
             dir: Direction::Forward,
         }
-    }
-    fn jump(&mut self) {
-        let (c, l) = self.jump;
-        self.chapter = c;
-        self.line = l;
-    }
-    fn lines(&self) -> &Vec<String> {
-        &self.chapters[self.chapter].lines
     }
     fn run(&mut self) -> crossterm::Result<()> {
         let mut stdout = stdout();
@@ -394,6 +417,20 @@ impl Bk<'_> {
 
         queue!(stdout, terminal::LeaveAlternateScreen, cursor::Show)?;
         terminal::disable_raw_mode()
+    }
+    fn mark(&mut self, c: char) {
+        self.mark.insert(c, (self.chapter, self.line));
+    }
+    fn jump(&mut self, c: char) {
+        if let Some(&(c, l)) = self.mark.get(&c) {
+            let jump = (self.chapter, self.line);
+            self.chapter = c;
+            self.line = l;
+            self.mark.insert('\'', jump);
+        }
+    }
+    fn lines(&self) -> &Vec<String> {
+        &self.chapters[self.chapter].lines
     }
     fn next_chapter(&mut self) {
         if self.chapter < self.chapters.len() - 1 {
@@ -424,7 +461,7 @@ impl Bk<'_> {
     }
     fn start_search(&mut self, dir: Direction) {
         self.query.clear();
-        self.jump = (self.chapter, self.line);
+        self.mark('\'');
         self.dir = dir;
         self.view = Some(&Search);
     }
@@ -443,7 +480,7 @@ impl Bk<'_> {
                             Err(n) => n - 1,
                         };
                         self.chapter = c;
-                        return true
+                        return true;
                     }
                 }
                 false
@@ -459,7 +496,7 @@ impl Bk<'_> {
                             Err(n) => n - 1,
                         };
                         self.chapter = c;
-                        return true
+                        return true;
                     }
                 }
                 false
