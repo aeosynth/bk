@@ -62,6 +62,12 @@ fn wrap(text: &str, width: usize) -> Vec<(usize, String)> {
     lines
 }
 
+#[derive(Clone)]
+enum Direction {
+    Forward,
+    Backward,
+}
+
 trait View {
     fn run(&self, bk: &mut Bk, kc: KeyCode);
     fn render(&self, bk: &Bk) -> Vec<String>;
@@ -75,8 +81,9 @@ impl View for Help {
     fn render(&self, _: &Bk) -> Vec<String> {
         let text = r#"
                    Esc q  Quit
-                    F1 ?  Help
-                       /  Search
+                      Fn  Help
+                       /  Search Forward
+                       ?  Search Backward
                      Tab  Table of Contents
 
 PageDown Right Space f l  Page Down
@@ -89,8 +96,9 @@ PageDown Right Space f l  Page Down
                    End G  Chapter End
                        [  Previous Chapter
                        ]  Next Chapter
-                       n  Search Forward
-                       N  Search Backward
+
+                       n  Repeat search forward
+                       N  Repeat search backward
                        '  Jump to previous position
                    "#;
 
@@ -169,12 +177,9 @@ impl View for Page {
                 bk.jump = (bk.chapter, bk.line);
                 bk.view = Some(&Nav);
             }
-            KeyCode::F(1) | KeyCode::Char('?') => bk.view = Some(&Help),
-            KeyCode::Char('/') => {
-                bk.query = String::new();
-                bk.jump = (bk.chapter, bk.line);
-                bk.view = Some(&Search);
-            }
+            KeyCode::F(_) => bk.view = Some(&Help),
+            KeyCode::Char('?') => bk.start_search(Direction::Backward),
+            KeyCode::Char('/') => bk.start_search(Direction::Forward),
             KeyCode::Char('\'') => {
                 let jump = (bk.chapter, bk.line);
                 bk.jump();
@@ -199,13 +204,13 @@ impl View for Page {
                 bk.scroll_up(bk.rows / 2);
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                bk.scroll_up(1);
+                bk.scroll_up(2);
             }
             KeyCode::Left | KeyCode::PageUp | KeyCode::Char('b') | KeyCode::Char('h') => {
                 bk.scroll_up(bk.rows);
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                bk.scroll_down(1);
+                bk.scroll_down(2);
             }
             KeyCode::Right
             | KeyCode::PageDown
@@ -225,11 +230,6 @@ impl View for Page {
     }
 }
 
-enum Direction {
-    Forward,
-    Backward,
-}
-
 struct Search;
 impl View for Search {
     fn run(&self, bk: &mut Bk, kc: KeyCode) {
@@ -244,11 +244,13 @@ impl View for Search {
             KeyCode::Backspace => {
                 bk.query.pop();
                 bk.jump();
-                bk.search(Direction::Forward);
+                bk.search(bk.dir.clone());
             }
             KeyCode::Char(c) => {
                 bk.query.push(c);
-                bk.search(Direction::Forward);
+                if !bk.search(bk.dir.clone()) {
+                    bk.jump();
+                }
             }
             _ => (),
         }
@@ -275,7 +277,11 @@ impl View for Search {
         for _ in buf.len()..bk.rows - 1 {
             buf.push(String::new());
         }
-        buf.push(format!("/{}", bk.query));
+        let prefix = match bk.dir {
+            Direction::Forward => '/',
+            Direction::Backward => '?',
+        };
+        buf.push(format!("{}{}", prefix, bk.query));
         buf
     }
 }
@@ -300,11 +306,11 @@ struct Bk<'a> {
     rows: usize,
     // user config
     max_width: u16,
-    // views don't have any internal state, which is great except for this single use nav_top
-    // query is also single use, but probably page view should use it
+    // view state
     view: Option<&'a dyn View>,
     nav_top: usize,
     query: String,
+    dir: Direction,
 }
 
 impl Bk<'_> {
@@ -350,6 +356,7 @@ impl Bk<'_> {
             view: Some(&Page),
             nav_top: 0,
             query: String::new(),
+            dir: Direction::Forward,
         }
     }
     fn jump(&mut self) {
@@ -415,7 +422,13 @@ impl Bk<'_> {
             self.line = self.lines().len().saturating_sub(self.rows);
         }
     }
-    fn search(&mut self, dir: Direction) {
+    fn start_search(&mut self, dir: Direction) {
+        self.query.clear();
+        self.jump = (self.chapter, self.line);
+        self.dir = dir;
+        self.view = Some(&Search);
+    }
+    fn search(&mut self, dir: Direction) -> bool {
         // https://doc.rust-lang.org/std/vec/struct.Vec.html#method.binary_search
         // If the value is not found then Result::Err is returned, containing the index where a matching element
         // could be inserted while maintaining sorted order.
@@ -430,10 +443,10 @@ impl Bk<'_> {
                             Err(n) => n - 1,
                         };
                         self.chapter = c;
-                        return;
+                        return true
                     }
                 }
-                self.jump();
+                false
             }
             Direction::Backward => {
                 let tail = (0..self.chapter - 1)
@@ -446,10 +459,10 @@ impl Bk<'_> {
                             Err(n) => n - 1,
                         };
                         self.chapter = c;
-                        return;
+                        return true
                     }
                 }
-                self.jump();
+                false
             }
         }
     }

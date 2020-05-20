@@ -17,13 +17,13 @@ Install from crates.io:
 or from github:
 
     git clone https://github.com/aeosynth/bk
-    cargo install --path .
+    cargo install --path bk
 
 then run:
 
     bk path/to/epub
 
-Type <kbd>F1</kbd> or <kbd>?</kbd> to see the commands.
+Type any function key (eg <kbd>F1</kbd>) to see the commands.
 
 Running `bk` without an argument will load the most recent Epub.
 
