@@ -140,11 +140,15 @@ struct Nav;
 impl View for Nav {
     fn run(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
-            KeyCode::Esc | KeyCode::Left | KeyCode::Char('h') | KeyCode::Char('q') => {
-                bk.jump('\'');
+            KeyCode::Esc
+            | KeyCode::Tab
+            | KeyCode::Left
+            | KeyCode::Char('h')
+            | KeyCode::Char('q') => {
+                bk.jump_reset();
                 bk.view = Some(&Page);
             }
-            KeyCode::Enter | KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+            KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
                 bk.line = 0;
                 bk.view = Some(&Page);
             }
@@ -266,7 +270,7 @@ impl View for Search {
     fn run(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             KeyCode::Esc => {
-                bk.jump('\'');
+                bk.jump_reset();
                 bk.view = Some(&Page);
             }
             KeyCode::Enter => {
@@ -274,13 +278,13 @@ impl View for Search {
             }
             KeyCode::Backspace => {
                 bk.query.pop();
-                bk.jump('\'');
+                bk.jump_reset();
                 bk.search(bk.dir.clone());
             }
             KeyCode::Char(c) => {
                 bk.query.push(c);
                 if !bk.search(bk.dir.clone()) {
-                    bk.jump('\'');
+                    bk.jump_reset();
                 }
             }
             _ => (),
@@ -385,9 +389,9 @@ impl Bk<'_> {
             rows: rows as usize,
             max_width,
             view: Some(&Page),
+            dir: Direction::Forward,
             nav_top: 0,
             query: String::new(),
-            dir: Direction::Forward,
         }
     }
     fn run(&mut self) -> crossterm::Result<()> {
@@ -429,6 +433,11 @@ impl Bk<'_> {
             self.mark.insert('\'', jump);
         }
     }
+    fn jump_reset(&mut self) {
+        let &(c, l) = self.mark.get(&'\'').unwrap();
+        self.chapter = c;
+        self.line = l;
+    }
     fn lines(&self) -> &Vec<String> {
         &self.chapters[self.chapter].lines
     }
@@ -460,8 +469,8 @@ impl Bk<'_> {
         }
     }
     fn start_search(&mut self, dir: Direction) {
-        self.query.clear();
         self.mark('\'');
+        self.query.clear();
         self.dir = dir;
         self.view = Some(&Search);
     }
@@ -469,16 +478,19 @@ impl Bk<'_> {
         // https://doc.rust-lang.org/std/vec/struct.Vec.html#method.binary_search
         // If the value is not found then Result::Err is returned, containing the index where a matching element
         // could be inserted while maintaining sorted order.
+        let get_line = |bytes: &Vec<usize>, byte: usize| -> usize {
+            match bytes.binary_search(&byte) {
+                Ok(n) => n,
+                Err(n) => n - 1,
+            }
+        };
         let head = (self.chapter, self.chapters[self.chapter].bytes[self.line]);
         match dir {
             Direction::Forward => {
                 let tail = (self.chapter + 1..self.chapters.len() - 1).map(|n| (n, 0));
                 for (c, byte) in iter::once(head).chain(tail) {
                     if let Some(index) = self.chapters[c].text[byte..].find(&self.query) {
-                        self.line = match self.chapters[c].bytes.binary_search(&(byte + index)) {
-                            Ok(n) => n,
-                            Err(n) => n - 1,
-                        };
+                        self.line = get_line(&self.chapters[c].bytes, index + byte);
                         self.chapter = c;
                         return true;
                     }
@@ -491,10 +503,7 @@ impl Bk<'_> {
                     .map(|c| (c, self.chapters[c].text.len()));
                 for (c, byte) in iter::once(head).chain(tail) {
                     if let Some(index) = self.chapters[c].text[..byte].rfind(&self.query) {
-                        self.line = match self.chapters[c].bytes.binary_search(&index) {
-                            Ok(n) => n,
-                            Err(n) => n - 1,
-                        };
+                        self.line = get_line(&self.chapters[c].bytes, index);
                         self.chapter = c;
                         return true;
                     }

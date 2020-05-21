@@ -30,9 +30,8 @@ Running `bk` without an argument will load the most recent Epub.
 
 # TODO
 - configuration
-- links
+- better html support
 - better unicode support
-- better html rendering
 - mobi?
 - images?
 - css?
