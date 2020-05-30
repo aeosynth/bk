@@ -352,8 +352,8 @@ impl Bk<'_> {
     fn new(epub: epub::Epub, chapter: usize, line: usize, max_width: u16) -> Self {
         let (cols, rows) = terminal::size().unwrap();
         let width = min(cols, max_width) as usize;
-
         let mut chapters = Vec::with_capacity(epub.chapters.len());
+
         for (title, text) in epub.chapters {
             let title = if title.chars().count() > width {
                 title
@@ -364,14 +364,7 @@ impl Bk<'_> {
             } else {
                 title
             };
-            let wrap = wrap(&text, width);
-            let mut lines = Vec::with_capacity(wrap.len());
-            let mut bytes = Vec::with_capacity(wrap.len());
-
-            for (byte, line) in wrap {
-                lines.push(line);
-                bytes.push(byte);
-            }
+            let (bytes, lines) = wrap(&text, width).into_iter().unzip();
             chapters.push(Chapter {
                 title,
                 text,
@@ -535,6 +528,7 @@ fn restore(save_path: &str) -> Option<(String, usize, usize)> {
             .to_string()
     };
 
+    // XXX move errors when i try to refactor
     match (save, path) {
         (Err(_), None) => None,
         (Err(_), Some(path)) => Some((canon(path), 0, 0)),
