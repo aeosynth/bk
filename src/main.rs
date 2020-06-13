@@ -1,5 +1,5 @@
 use std::io::{stdout, Write};
-use std::{cmp::min, collections::HashMap, env, iter, process::exit};
+use std::{cmp::min, collections::HashMap, env, fs, iter, process::exit};
 
 use crossterm::{
     cursor,
@@ -349,9 +349,9 @@ struct Bk<'a> {
 }
 
 impl Bk<'_> {
-    fn new(epub: epub::Epub, chapter: usize, line: usize, max_width: u16) -> Self {
+    fn new(epub: epub::Epub, args: Args) -> Self {
         let (cols, rows) = terminal::size().unwrap();
-        let width = min(cols, max_width) as usize;
+        let width = min(cols, args.width) as usize;
         let mut chapters = Vec::with_capacity(epub.chapters.len());
 
         for (title, text) in epub.chapters {
@@ -375,12 +375,12 @@ impl Bk<'_> {
 
         Bk {
             chapters,
-            chapter,
-            line,
+            chapter: args.chapter,
+            line: args.line,
             mark: HashMap::new(),
             cols,
             rows: rows as usize,
-            max_width,
+            max_width: args.width,
             view: Some(&Page),
             dir: Direction::Forward,
             nav_top: 0,
@@ -507,41 +507,49 @@ impl Bk<'_> {
     }
 }
 
-fn restore(save_path: &str) -> Option<(String, usize, usize)> {
-    let path = env::args().nth(1);
-    let save = std::fs::read_to_string(save_path);
+struct Args {
+    chapter: usize,
+    line: usize,
+    width: u16,
+}
 
-    let get_save = |s: String| {
+fn restore(save_path: &str) -> Option<(String, Args)> {
+    let mut args = pico_args::Arguments::from_env();
+    let width = args.opt_value_from_str("-w").unwrap().unwrap_or(75);
+    let free = args.free().unwrap();
+    let path = free
+        .first()
+        .and_then(|s| Some(fs::canonicalize(s).unwrap().to_str().unwrap().to_string()));
+    let save = fs::read_to_string(save_path).and_then(|s| {
         let mut lines = s.lines();
-        (
+        Ok((
             lines.next().unwrap().to_string(),
             lines.next().unwrap().parse::<usize>().unwrap(),
             lines.next().unwrap().parse::<usize>().unwrap(),
-        )
-    };
+        ))
+    });
 
-    let canon = |s: String| {
-        std::fs::canonicalize(s)
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string()
-    };
-
-    // XXX move errors when i try to refactor
-    match (save, path) {
-        (Err(_), None) => None,
-        (Err(_), Some(path)) => Some((canon(path), 0, 0)),
-        (Ok(save), None) => Some(get_save(save)),
+    let (path, chapter, line) = match (save, path) {
+        (Err(_), None) => return None,
+        (Err(_), Some(path)) => (path, 0, 0),
+        (Ok(save), None) => save,
         (Ok(save), Some(path)) => {
-            let save = get_save(save);
-            if path == save.0 {
-                Some(save)
+            if save.0 == path {
+                save
             } else {
-                Some((canon(path), 0, 0))
+                (path, 0, 0)
             }
         }
-    }
+    };
+
+    Some((
+        path,
+        Args {
+            chapter,
+            line,
+            width,
+        },
+    ))
 }
 
 fn main() {
@@ -550,8 +558,9 @@ fn main() {
     } else {
         format!("{}/.local/share/bk", env::var("HOME").unwrap())
     };
-    let (path, chapter, line) = restore(&save_path).unwrap_or_else(|| {
-        println!("usage: bk path");
+
+    let (path, args) = restore(&save_path).unwrap_or_else(|| {
+        println!("usage: bk [flags] [path]");
         exit(1);
     });
 
@@ -560,14 +569,12 @@ fn main() {
         exit(1);
     });
 
-    let mut bk = Bk::new(epub, chapter, line, 75);
+    let mut bk = Bk::new(epub, args);
     // crossterm really shouldn't error
     bk.run().unwrap();
 
-    std::fs::write(save_path, format!("{}\n{}\n{}", path, bk.chapter, bk.line)).unwrap_or_else(
-        |e| {
-            println!("error saving position: {}", e);
-            exit(1);
-        },
-    );
+    fs::write(save_path, format!("{}\n{}\n{}", path, bk.chapter, bk.line)).unwrap_or_else(|e| {
+        println!("error saving position: {}", e);
+        exit(1);
+    });
 }

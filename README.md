@@ -22,18 +22,19 @@ or from github:
 
 then run:
 
-    bk path/to/epub
+    bk [flags] [path]
+
+Running `bk` without a path will load the most recent Epub.
+
+The `-w` flag sets the line width.
 
 Type any function key (eg <kbd>F1</kbd>) to see the commands.
-
-Running `bk` without an argument will load the most recent Epub.
 
 # TODO
 - configuration
 - better html support
 - better unicode support
 - mobi?
-- images?
 - css?
 - gui?
 

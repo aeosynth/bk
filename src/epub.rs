@@ -53,7 +53,7 @@ impl Epub {
                 }
                 buf.push_str("\x1b\x5b0m\n");
             }
-            "blockquote" | "p" => {
+            "blockquote" | "p" | "tr" => {
                 buf.push('\n');
                 for c in n.children() {
                     Self::render(buf, c);
