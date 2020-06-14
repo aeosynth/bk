@@ -1,6 +1,8 @@
 use std::io::{stdout, Write};
 use std::{cmp::min, collections::HashMap, env, fs, iter, process::exit};
 
+use argh::FromArgs;
+
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode},
@@ -349,7 +351,7 @@ struct Bk<'a> {
 }
 
 impl Bk<'_> {
-    fn new(epub: epub::Epub, args: Args) -> Self {
+    fn new(epub: epub::Epub, args: Props) -> Self {
         let (cols, rows) = terminal::size().unwrap();
         let width = min(cols, args.width) as usize;
         let mut chapters = Vec::with_capacity(epub.chapters.len());
@@ -507,18 +509,27 @@ impl Bk<'_> {
     }
 }
 
+#[derive(FromArgs)]
+/// read a book
 struct Args {
+    #[argh(positional)]
+    path: Option<String>,
+
+    /// characters per line
+    #[argh(option, short = 'w', default = "75")]
+    width: u16,
+}
+
+struct Props {
     chapter: usize,
     line: usize,
     width: u16,
 }
 
-fn restore(save_path: &str) -> Option<(String, Args)> {
-    let mut args = pico_args::Arguments::from_env();
-    let width = args.opt_value_from_str("-w").unwrap().unwrap_or(75);
-    let free = args.free().unwrap();
-    let path = free
-        .first()
+fn restore(save_path: &str) -> Option<(String, Props)> {
+    let args: Args = argh::from_env();
+    let width = args.width;
+    let path = args.path
         .and_then(|s| Some(fs::canonicalize(s).unwrap().to_str().unwrap().to_string()));
     let save = fs::read_to_string(save_path).and_then(|s| {
         let mut lines = s.lines();
@@ -544,7 +555,7 @@ fn restore(save_path: &str) -> Option<(String, Args)> {
 
     Some((
         path,
-        Args {
+        Props {
             chapter,
             line,
             width,
@@ -560,7 +571,7 @@ fn main() {
     };
 
     let (path, args) = restore(&save_path).unwrap_or_else(|| {
-        println!("usage: bk [flags] [path]");
+        println!("error: need a path");
         exit(1);
     });
 
@@ -570,11 +581,11 @@ fn main() {
     });
 
     let mut bk = Bk::new(epub, args);
-    // crossterm really shouldn't error
+    // i have never seen crossterm error
     bk.run().unwrap();
 
     fs::write(save_path, format!("{}\n{}\n{}", path, bk.chapter, bk.line)).unwrap_or_else(|e| {
-        println!("error saving position: {}", e);
+        println!("error saving state: {}", e);
         exit(1);
     });
 }
