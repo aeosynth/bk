@@ -13,51 +13,52 @@ use crossterm::{
 
 mod epub;
 
+// XXX assumes a char is i unit wide
 fn wrap(text: &str, width: usize) -> Vec<(usize, String)> {
-    // XXX assumes a char is 1 unit wide
     let mut lines = Vec::new();
-
+    // bytes
     let mut start = 0;
     let mut end = 0;
+    // chars after the break
+    let mut after = 0;
+    // chars in unbroken line
     let mut len = 0;
-    let mut word = 0;
-    let mut skip = 0;
+    // are we breaking on whitespace?
+    let mut skip = false;
 
     for (i, c) in text.char_indices() {
         len += 1;
         match c {
-            ' ' => {
+            '\n' => {
+                after = 0;
                 end = i;
-                skip = 1;
-                word = 0;
+                skip = true;
+                len = width + 1;
             }
-            '-' | '—' => {
-                if len > width {
-                    // `end = i + len` is a hack that breaks here
-                    word += 1;
-                } else {
-                    end = i + c.len_utf8();
-                    skip = 0;
-                    word = 0;
-                }
+            ' ' => {
+                after = 0;
+                end = i;
+                skip = true;
             }
-            _ => {
-                word += 1;
+            '-' | '—' if len <= width => {
+                after = 0;
+                end = i + c.len_utf8();
+                skip = false;
             }
+            _ => after += 1,
         }
-        if c == '\n' {
-            lines.push((start, String::from(&text[start..i])));
-            start = i + 1;
-            len = 0;
-        } else if len > width {
-            let line = if word == len {
-                &text[start..i]
-            } else {
-                &text[start..end]
-            };
-            lines.push((start, String::from(line)));
-            start = end + skip;
-            len = word;
+        if len > width {
+            if len == after {
+                after = 1;
+                end = i;
+                skip = false;
+            }
+            lines.push((start, String::from(&text[start..end])));
+            start = end;
+            if skip {
+                start += 1;
+            }
+            len = after;
         }
     }
 
