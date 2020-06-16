@@ -377,9 +377,9 @@ impl Bk<'_> {
         }
 
         Bk {
+            line: min(args.line, chapters[args.chapter].lines.len().saturating_sub(rows as usize)),
             chapters,
             chapter: args.chapter,
-            line: args.line,
             mark: HashMap::new(),
             cols,
             rows: rows as usize,
