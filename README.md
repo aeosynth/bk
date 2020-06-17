@@ -20,16 +20,29 @@ or from github:
     cargo install --path bk
 
 # Usage
-    bk [<path>] [-w <width>]
+
+    Usage: bk [<path>] [-w <width>]
+
+    read a book
+
+    Options:
+      -w, --width       characters per line
+      --help            display usage information
 
 Running `bk` without a path will load the most recent Epub.
 
 Type any function key (eg <kbd>F1</kbd>) to see the keybinds.
 
+# Configuration alternatives
+
+- Theming: theme your terminal
+- Config file: create an alias with cli options
+
 # TODO
 - more configuration
 - better html support
-- better unicode support
+- test unicode
+- github actions / ci
 - css?
 - mobi?
 

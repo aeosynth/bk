@@ -530,8 +530,7 @@ struct Props {
 fn restore(save_path: &str) -> Option<(String, Props)> {
     let args: Args = argh::from_env();
     let width = args.width;
-    let path = args.path
-        .and_then(|s| Some(fs::canonicalize(s).unwrap().to_str().unwrap().to_string()));
+    let path = args.path.map(|s| fs::canonicalize(s).unwrap().to_str().unwrap().to_string());
     let save = fs::read_to_string(save_path).and_then(|s| {
         let mut lines = s.lines();
         Ok((

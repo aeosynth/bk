@@ -47,11 +47,11 @@ impl Epub {
 
         match n.tag_name().name() {
             "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-                buf.push_str("\n\x1b\x5b1m");
+                buf.push_str("\n\x1b[1m");
                 for c in n.children() {
                     Self::render(buf, c);
                 }
-                buf.push_str("\x1b\x5b0m\n");
+                buf.push_str("\x1b[0m\n");
             }
             "blockquote" | "p" | "tr" => {
                 buf.push('\n');
