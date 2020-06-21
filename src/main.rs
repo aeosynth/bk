@@ -374,6 +374,15 @@ impl Bk<'_> {
             });
         }
 
+        let mut mark = HashMap::new();
+        let view: &dyn View = if args.toc {
+            // need an initial mark to reset to
+            mark.insert('\'', (args.chapter, args.line));
+            &Nav
+        } else {
+            &Page
+        };
+
         Bk {
             line: min(
                 args.line,
@@ -384,11 +393,11 @@ impl Bk<'_> {
             ),
             chapters,
             chapter: args.chapter,
-            mark: HashMap::new(),
+            mark,
             cols,
             rows: rows as usize,
             max_width: args.width,
-            view: Some(&Page),
+            view: Some(view),
             dir: Direction::Forward,
             nav_top: 0,
             query: String::new(),
@@ -523,12 +532,17 @@ struct Args {
     /// characters per line
     #[argh(option, short = 'w', default = "75")]
     width: u16,
+
+    /// start with table of contents open
+    #[argh(switch, short = 't')]
+    toc: bool,
 }
 
 struct Props {
     chapter: usize,
     line: usize,
     width: u16,
+    toc: bool,
 }
 
 fn restore(save_path: &str) -> Option<(String, Props)> {
@@ -567,6 +581,7 @@ fn restore(save_path: &str) -> Option<(String, Props)> {
             chapter,
             line,
             width,
+            toc: args.toc,
         },
     ))
 }

@@ -27,6 +27,7 @@ or from github:
 
     Options:
       -w, --width       characters per line
+      -t, --toc         start with table of contents open
       --help            display usage information
 
 Running `bk` without a path will load the most recent Epub.
