@@ -98,7 +98,7 @@ impl Epub {
         let doc = Document::parse(&xml).unwrap();
         // zip expects unix path even on windows
         let rootdir = match path.rfind('/') {
-            Some(n) => &path[..n + 1],
+            Some(n) => &path[..=n],
             None => "",
         };
 

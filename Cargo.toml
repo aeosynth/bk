@@ -11,11 +11,11 @@ readme = "README.md"
 repository = "https://github.com/aeosynth/bk"
 
 [dependencies]
-argh = "0.1"
-crossterm = "0.17"
-roxmltree = "0.11"
+argh = "0"
+crossterm = "0"
+roxmltree = "0"
 
 [dependencies.zip]
-version = "0.5"
+version = "0"
 default-features = false
 features = ["deflate"]

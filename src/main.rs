@@ -80,9 +80,8 @@ trait View {
 struct Mark;
 impl View for Mark {
     fn run(&self, bk: &mut Bk, kc: KeyCode) {
-        match kc {
-            KeyCode::Char(c) => bk.mark(c),
-            _ => (),
+        if let KeyCode::Char(c) = kc {
+            bk.mark(c)
         }
         bk.view = Some(&Page)
     }
@@ -94,9 +93,8 @@ impl View for Mark {
 struct Jump;
 impl View for Jump {
     fn run(&self, bk: &mut Bk, kc: KeyCode) {
-        match kc {
-            KeyCode::Char(c) => bk.jump(c),
-            _ => (),
+        if let KeyCode::Char(c) = kc {
+            bk.jump(c)
         }
         bk.view = Some(&Page);
     }
@@ -377,7 +375,13 @@ impl Bk<'_> {
         }
 
         Bk {
-            line: min(args.line, chapters[args.chapter].lines.len().saturating_sub(rows as usize)),
+            line: min(
+                args.line,
+                chapters[args.chapter]
+                    .lines
+                    .len()
+                    .saturating_sub(rows as usize),
+            ),
             chapters,
             chapter: args.chapter,
             mark: HashMap::new(),
@@ -530,7 +534,11 @@ struct Props {
 fn restore(save_path: &str) -> Option<(String, Props)> {
     let args: Args = argh::from_env();
     let width = args.width;
-    let path = args.path.map(|s| fs::canonicalize(s).unwrap().to_str().unwrap().to_string());
+    // XXX we shouldn't panic, but it gives a useful error, and we
+    // don't want to load the saved path if an invalid path is given
+    let path = args
+        .path
+        .map(|s| fs::canonicalize(s).unwrap().to_str().unwrap().to_string());
     let save = fs::read_to_string(save_path).and_then(|s| {
         let mut lines = s.lines();
         Ok((
