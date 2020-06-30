@@ -93,33 +93,28 @@ impl Epub {
             .unwrap()
             .attribute("full-path")
             .unwrap();
-
         let xml = self.get_text(path);
         let doc = Document::parse(&xml).unwrap();
+        let root = doc.root_element();
+
         // zip expects unix path even on windows
         let rootdir = match path.rfind('/') {
             Some(n) => &path[..=n],
             None => "",
         };
-
-        let mut manifest = HashMap::new();
-        doc.root_element()
+        let spine = root.children().find(|n| n.has_tag_name("spine")).unwrap();
+        let manifest = root
             .children()
             .find(|n| n.has_tag_name("manifest"))
-            .unwrap()
-            .children()
-            .filter(Node::is_element)
-            .for_each(|n| {
-                manifest.insert(n.attribute("id").unwrap(), n.attribute("href").unwrap());
-            });
-
+            .unwrap();
+        let mut manifest_map = HashMap::new();
+        manifest.children().filter(Node::is_element).for_each(|n| {
+            manifest_map.insert(n.attribute("id").unwrap(), n.attribute("href").unwrap());
+        });
         let mut nav = HashMap::new();
-        if doc.root_element().attribute("version") == Some("3.0") {
-            let path = doc
-                .root_element()
-                .children()
-                .find(|n| n.has_tag_name("manifest"))
-                .unwrap()
+
+        if root.attribute("version") == Some("3.0") {
+            let path = manifest
                 .children()
                 .find(|n| n.attribute("properties") == Some("nav"))
                 .unwrap()
@@ -143,7 +138,8 @@ impl Epub {
                     nav.insert(path, text);
                 })
         } else {
-            let path = manifest.get("ncx").unwrap();
+            let toc = spine.attribute("toc").unwrap_or("ncx");
+            let path = manifest_map.get(toc).unwrap();
             let xml = self.get_text(&format!("{}{}", rootdir, path));
             let doc = Document::parse(&xml).unwrap();
 
@@ -171,16 +167,13 @@ impl Epub {
                 })
         }
 
-        doc.root_element()
-            .children()
-            .find(|n| n.has_tag_name("spine"))
-            .unwrap()
+        spine
             .children()
             .filter(Node::is_element)
             .enumerate()
             .map(|(i, n)| {
                 let id = n.attribute("idref").unwrap();
-                let path = manifest.remove(id).unwrap();
+                let path = manifest_map.remove(id).unwrap();
                 let label = nav.remove(path).unwrap_or_else(|| i.to_string());
                 let path = format!("{}{}", rootdir, path);
                 (path, label)
