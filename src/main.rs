@@ -14,7 +14,7 @@ use crossterm::{
 mod epub;
 
 // XXX assumes a char is i unit wide
-fn wrap(text: &str, width: usize) -> Vec<(usize, String)> {
+fn wrap(text: &str, width: usize) -> Vec<(usize, usize)> {
     let mut lines = Vec::new();
     // bytes
     let mut start = 0;
@@ -53,7 +53,7 @@ fn wrap(text: &str, width: usize) -> Vec<(usize, String)> {
                 end = i;
                 skip = false;
             }
-            lines.push((start, String::from(&text[start..end])));
+            lines.push((start, end));
             start = end;
             if skip {
                 start += 1;
@@ -117,15 +117,15 @@ impl View for Metadata {
         let pages = lines[bk.chapter] / bk.rows;
         let page = bk.line / bk.rows;
 
-        let mut vec = vec![format!("chapter: {}/{}", page, pages),
+        let mut vec = vec![
+            format!("chapter: {}/{}", page, pages),
             format!("total: {:.0}%", progress),
-            String::new()
+            String::new(),
         ];
         vec.extend_from_slice(&bk.meta);
         vec
     }
 }
-
 
 struct Help;
 impl View for Help {
@@ -243,17 +243,16 @@ impl View for Page {
             KeyCode::Char('i') => bk.view = Some(&Metadata),
             KeyCode::Char('?') => bk.start_search(Direction::Backward),
             KeyCode::Char('/') => bk.start_search(Direction::Forward),
+            // XXX temporarily broken (well needing to manually advance before searching)
             KeyCode::Char('N') => {
                 bk.search(Direction::Backward);
             }
             KeyCode::Char('n') => {
-                // FIXME
-                bk.scroll_down(1);
                 bk.search(Direction::Forward);
             }
             KeyCode::End | KeyCode::Char('G') => {
                 bk.mark('\'');
-                bk.line = bk.lines().len().saturating_sub(bk.rows);
+                bk.line = bk.chap().lines.len().saturating_sub(bk.rows);
             }
             KeyCode::Home | KeyCode::Char('g') => {
                 bk.mark('\'');
@@ -287,8 +286,12 @@ impl View for Page {
         }
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
-        let end = min(bk.line + bk.rows, bk.lines().len());
-        bk.lines()[bk.line..end].iter().map(String::from).collect()
+        let c = bk.chap();
+        let end = min(bk.line + bk.rows, c.lines.len());
+        c.lines[bk.line..end]
+            .iter()
+            .map(|&(a, b)| String::from(&c.text[a..b]))
+            .collect()
     }
 }
 
@@ -318,10 +321,12 @@ impl View for Search {
         }
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
-        let end = min(bk.line + bk.rows - 1, bk.lines().len());
+        let c = bk.chap();
+        let end = min(bk.line + bk.rows - 1, c.lines.len());
         let mut buf = Vec::with_capacity(bk.rows);
 
-        for line in bk.lines()[bk.line..end].iter() {
+        for &(a, b) in c.lines[bk.line..end].iter() {
+            let line = String::from(&c.text[a..b]);
             if let Some(i) = line.find(&bk.query) {
                 buf.push(format!(
                     "{}{}{}{}{}",
@@ -332,7 +337,7 @@ impl View for Search {
                     &line[i + bk.query.len()..],
                 ));
             } else {
-                buf.push(String::from(line));
+                buf.push(line);
             }
         }
 
@@ -348,13 +353,12 @@ impl View for Search {
     }
 }
 
-// search the text to find the byte index of the query, then find the containing line
-// ideally we could use string slices as pointers, but self referential structs are hard
 struct Chapter {
     title: String,
+    // a single string for searching
     text: String,
-    bytes: Vec<usize>,
-    lines: Vec<String>,
+    // byte indexes
+    lines: Vec<(usize, usize)>,
 }
 
 struct Bk<'a> {
@@ -380,7 +384,10 @@ impl Bk<'_> {
     fn new(epub: epub::Epub, args: Props) -> Self {
         let (cols, rows) = terminal::size().unwrap();
         let width = min(cols, args.width) as usize;
-        let meta = wrap(&epub.meta, width).into_iter().map(|(_, b)| b).collect();
+        let meta = wrap(&epub.meta, width)
+            .into_iter()
+            .map(|(a, b)| String::from(&epub.meta[a..b]))
+            .collect();
 
         let mut chapters = Vec::with_capacity(epub.chapters.len());
         for (text, title) in epub.chapters {
@@ -393,13 +400,8 @@ impl Bk<'_> {
             } else {
                 title
             };
-            let (bytes, lines) = wrap(&text, width).into_iter().unzip();
-            chapters.push(Chapter {
-                title,
-                text,
-                lines,
-                bytes,
-            });
+            let lines = wrap(&text, width);
+            chapters.push(Chapter { title, text, lines });
         }
 
         let mut mark = HashMap::new();
@@ -476,8 +478,8 @@ impl Bk<'_> {
         self.chapter = c;
         self.line = l;
     }
-    fn lines(&self) -> &Vec<String> {
-        &self.chapters[self.chapter].lines
+    fn chap(&self) -> &Chapter {
+        &self.chapters[self.chapter]
     }
     fn next_chapter(&mut self) {
         if self.chapter < self.chapters.len() - 1 {
@@ -492,7 +494,7 @@ impl Bk<'_> {
         }
     }
     fn scroll_down(&mut self, n: usize) {
-        if self.line + self.rows < self.lines().len() {
+        if self.line + self.rows < self.chap().lines.len() {
             self.line += n;
         } else {
             self.next_chapter();
@@ -503,7 +505,7 @@ impl Bk<'_> {
             self.line = self.line.saturating_sub(n);
         } else {
             self.prev_chapter();
-            self.line = self.lines().len().saturating_sub(self.rows);
+            self.line = self.chap().lines.len().saturating_sub(self.rows);
         }
     }
     fn start_search(&mut self, dir: Direction) {
@@ -513,22 +515,20 @@ impl Bk<'_> {
         self.view = Some(&Search);
     }
     fn search(&mut self, dir: Direction) -> bool {
-        // https://doc.rust-lang.org/std/vec/struct.Vec.html#method.binary_search
-        // If the value is not found then Result::Err is returned, containing the index where a matching element
-        // could be inserted while maintaining sorted order.
-        let get_line = |bytes: &Vec<usize>, byte: usize| -> usize {
-            match bytes.binary_search(&byte) {
+        let get_line = |lines: &Vec<(usize, usize)>, byte: usize| -> usize {
+            match lines.binary_search_by_key(&byte, |&(a, _)| a) {
                 Ok(n) => n,
                 Err(n) => n - 1,
             }
         };
-        let head = (self.chapter, self.chapters[self.chapter].bytes[self.line]);
+        let (start, end) = self.chap().lines[self.line];
         match dir {
             Direction::Forward => {
+                let head = (self.chapter, start);
                 let tail = (self.chapter + 1..self.chapters.len() - 1).map(|n| (n, 0));
                 for (c, byte) in iter::once(head).chain(tail) {
                     if let Some(index) = self.chapters[c].text[byte..].find(&self.query) {
-                        self.line = get_line(&self.chapters[c].bytes, index + byte);
+                        self.line = get_line(&self.chapters[c].lines, index + byte);
                         self.chapter = c;
                         return true;
                     }
@@ -536,12 +536,13 @@ impl Bk<'_> {
                 false
             }
             Direction::Backward => {
-                let tail = (0..self.chapter - 1)
+                let head = (self.chapter, end);
+                let tail = (0..self.chapter)
                     .rev()
                     .map(|c| (c, self.chapters[c].text.len()));
                 for (c, byte) in iter::once(head).chain(tail) {
                     if let Some(index) = self.chapters[c].text[..byte].rfind(&self.query) {
-                        self.line = get_line(&self.chapters[c].bytes, index);
+                        self.line = get_line(&self.chapters[c].lines, index);
                         self.chapter = c;
                         return true;
                     }

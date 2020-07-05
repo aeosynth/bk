@@ -1,8 +1,5 @@
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
-
 use roxmltree::{Document, Node};
+use std::{collections::HashMap, fs::File, io::Read};
 
 pub struct Epub {
     container: zip::ZipArchive<File>,
