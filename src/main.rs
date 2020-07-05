@@ -109,7 +109,20 @@ impl View for Metadata {
         bk.view = Some(&Page);
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
-        bk.meta.clone()
+        let lines: Vec<usize> = bk.chapters.iter().map(|c| c.lines.len()).collect();
+        let current = lines[..bk.chapter].iter().sum::<usize>() + bk.line;
+        let total = lines.iter().sum::<usize>();
+        let progress = current as f32 / total as f32 * 100.0;
+
+        let pages = lines[bk.chapter] / bk.rows;
+        let page = bk.line / bk.rows;
+
+        let mut vec = vec![format!("chapter: {}/{}", page, pages),
+            format!("total: {:.0}%", progress),
+            String::new()
+        ];
+        vec.extend_from_slice(&bk.meta);
+        vec
     }
 }
 
@@ -124,7 +137,7 @@ impl View for Help {
                    Esc q  Quit
                       Fn  Help
                      Tab  Table of Contents
-                       i  Metadata
+                       i  Progress and Metadata
 
 PageDown Right Space f l  Page Down
          PageUp Left b h  Page Up
