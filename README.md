@@ -21,13 +21,14 @@ or from github:
 
 # Usage
 
-    Usage: bk [<path>] [-w <width>]
+    Usage: bk [<path>] [-m] [-t] [-w <width>]
 
     read a book
 
     Options:
-      -w, --width       characters per line
+      -m, --meta        print metadata and exit
       -t, --toc         start with table of contents open
+      -w, --width       characters per line
       --help            display usage information
 
 Running `bk` without a path will load the most recent Epub.

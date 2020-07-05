@@ -355,7 +355,7 @@ impl Bk<'_> {
         let width = min(cols, args.width) as usize;
         let mut chapters = Vec::with_capacity(epub.chapters.len());
 
-        for (title, text) in epub.chapters {
+        for (text, title) in epub.chapters {
             let title = if title.chars().count() > width {
                 title
                     .chars()
@@ -529,13 +529,17 @@ struct Args {
     #[argh(positional)]
     path: Option<String>,
 
-    /// characters per line
-    #[argh(option, short = 'w', default = "75")]
-    width: u16,
+    /// print metadata and exit
+    #[argh(switch, short = 'm')]
+    meta: bool,
 
     /// start with table of contents open
     #[argh(switch, short = 't')]
     toc: bool,
+
+    /// characters per line
+    #[argh(option, short = 'w', default = "75")]
+    width: u16,
 }
 
 struct Props {
@@ -545,11 +549,9 @@ struct Props {
     toc: bool,
 }
 
-fn restore(save_path: &str) -> Option<(String, Props)> {
+fn init(save_path: &str) -> Option<(String, bool, Props)> {
     let args: Args = argh::from_env();
-    let width = args.width;
-    // XXX we shouldn't panic, but it gives a useful error, and we
-    // don't want to load the saved path if an invalid path is given
+    // TODO nice error message instead of panic
     let path = args
         .path
         .map(|s| fs::canonicalize(s).unwrap().to_str().unwrap().to_string());
@@ -577,10 +579,11 @@ fn restore(save_path: &str) -> Option<(String, Props)> {
 
     Some((
         path,
+        args.meta,
         Props {
             chapter,
             line,
-            width,
+            width: args.width,
             toc: args.toc,
         },
     ))
@@ -593,16 +596,22 @@ fn main() {
         format!("{}/.local/share/bk", env::var("HOME").unwrap())
     };
 
-    let (path, args) = restore(&save_path).unwrap_or_else(|| {
+    let (path, meta, args) = init(&save_path).unwrap_or_else(|| {
         println!("error: need a path");
         exit(1);
     });
 
-    let epub = epub::Epub::new(&path).unwrap_or_else(|e| {
+    let mut epub = epub::Epub::new(&path).unwrap_or_else(|e| {
         println!("error reading epub: {}", e);
         exit(1);
     });
 
+    if meta {
+        println!("{}", epub.meta);
+        exit(0);
+    }
+
+    epub.get_chapters();
     let mut bk = Bk::new(epub, args);
     // i have never seen crossterm error
     bk.run().unwrap();

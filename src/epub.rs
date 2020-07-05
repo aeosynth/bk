@@ -7,6 +7,7 @@ use roxmltree::{Document, Node};
 pub struct Epub {
     container: zip::ZipArchive<File>,
     pub chapters: Vec<(String, String)>,
+    pub meta: String,
 }
 
 impl Epub {
@@ -15,12 +16,16 @@ impl Epub {
         let mut epub = Epub {
             container: zip::ZipArchive::new(file)?,
             chapters: Vec::new(),
+            meta: String::new(),
         };
-        epub.chapters = epub
-            .get_nav()
+        epub.get_rootfile();
+        Ok(epub)
+    }
+    pub fn get_chapters(&mut self) {
+        self.chapters = std::mem::take(&mut self.chapters)
             .into_iter()
             .filter_map(|(path, title)| {
-                let xml = epub.get_text(&path);
+                let xml = self.get_text(&path);
                 // https://github.com/RazrFalcon/roxmltree/issues/12
                 // UnknownEntityReference for HTML entities
                 let doc = Document::parse(&xml).unwrap();
@@ -30,11 +35,10 @@ impl Epub {
                 if chapter.is_empty() {
                     None
                 } else {
-                    Some((title, chapter))
+                    Some((chapter, title))
                 }
             })
             .collect();
-        Ok(epub)
     }
     fn render(buf: &mut String, n: Node) {
         if n.is_text() {
@@ -84,7 +88,7 @@ impl Epub {
             .unwrap();
         text
     }
-    fn get_nav(&mut self) -> Vec<(String, String)> {
+    fn get_rootfile(&mut self) {
         let xml = self.get_text("META-INF/container.xml");
         let doc = Document::parse(&xml).unwrap();
         let path = doc
@@ -95,26 +99,36 @@ impl Epub {
             .unwrap();
         let xml = self.get_text(path);
         let doc = Document::parse(&xml).unwrap();
-        let root = doc.root_element();
 
         // zip expects unix path even on windows
         let rootdir = match path.rfind('/') {
             Some(n) => &path[..=n],
             None => "",
         };
-        let spine = root.children().find(|n| n.has_tag_name("spine")).unwrap();
-        let manifest = root
-            .children()
-            .find(|n| n.has_tag_name("manifest"))
-            .unwrap();
-        let mut manifest_map = HashMap::new();
-        manifest.children().filter(Node::is_element).for_each(|n| {
-            manifest_map.insert(n.attribute("id").unwrap(), n.attribute("href").unwrap());
-        });
+        let mut manifest = HashMap::new();
         let mut nav = HashMap::new();
+        let mut children = doc.root_element().children().filter(Node::is_element);
+        let meta_node = children.next().unwrap();
+        let manifest_node = children.next().unwrap();
+        let spine_node = children.next().unwrap();
 
-        if root.attribute("version") == Some("3.0") {
-            let path = manifest
+        meta_node
+            .children()
+            .filter(|n| n.is_element() && n.tag_name().name() != "meta")
+            .for_each(|n| {
+                let name = n.tag_name().name();
+                let text = n.text().unwrap();
+                self.meta.push_str(&format!("{}: {}\n", name, text));
+            });
+        manifest_node
+            .children()
+            .filter(Node::is_element)
+            .for_each(|n| {
+                manifest.insert(n.attribute("id").unwrap(), n.attribute("href").unwrap());
+            });
+
+        if doc.root_element().attribute("version") == Some("3.0") {
+            let path = manifest_node
                 .children()
                 .find(|n| n.attribute("properties") == Some("nav"))
                 .unwrap()
@@ -138,8 +152,8 @@ impl Epub {
                     nav.insert(path, text);
                 })
         } else {
-            let toc = spine.attribute("toc").unwrap_or("ncx");
-            let path = manifest_map.get(toc).unwrap();
+            let toc = spine_node.attribute("toc").unwrap_or("ncx");
+            let path = manifest.get(toc).unwrap();
             let xml = self.get_text(&format!("{}{}", rootdir, path));
             let doc = Document::parse(&xml).unwrap();
 
@@ -167,18 +181,18 @@ impl Epub {
                 })
         }
 
-        spine
+        self.chapters = spine_node
             .children()
             .filter(Node::is_element)
             .enumerate()
             .map(|(i, n)| {
                 let id = n.attribute("idref").unwrap();
-                let path = manifest_map.remove(id).unwrap();
+                let path = manifest.remove(id).unwrap();
                 let label = nav.remove(path).unwrap_or_else(|| i.to_string());
                 let path = format!("{}{}", rootdir, path);
                 (path, label)
             })
-            .collect()
+            .collect();
     }
 }
 
