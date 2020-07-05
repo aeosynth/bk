@@ -103,6 +103,17 @@ impl View for Jump {
     }
 }
 
+struct Metadata;
+impl View for Metadata {
+    fn run(&self, bk: &mut Bk, _: KeyCode) {
+        bk.view = Some(&Page);
+    }
+    fn render(&self, bk: &Bk) -> Vec<String> {
+        bk.meta.clone()
+    }
+}
+
+
 struct Help;
 impl View for Help {
     fn run(&self, bk: &mut Bk, _: KeyCode) {
@@ -112,9 +123,8 @@ impl View for Help {
         let text = r#"
                    Esc q  Quit
                       Fn  Help
-                       /  Search Forward
-                       ?  Search Backward
                      Tab  Table of Contents
+                       i  Metadata
 
 PageDown Right Space f l  Page Down
          PageUp Left b h  Page Up
@@ -127,6 +137,8 @@ PageDown Right Space f l  Page Down
                        [  Previous Chapter
                        ]  Next Chapter
 
+                       /  Search Forward
+                       ?  Search Backward
                        n  Repeat search forward
                        N  Repeat search backward
                       mx  Set mark x
@@ -213,10 +225,11 @@ impl View for Page {
                 bk.view = Some(&Nav);
             }
             KeyCode::F(_) => bk.view = Some(&Help),
-            KeyCode::Char('?') => bk.start_search(Direction::Backward),
-            KeyCode::Char('/') => bk.start_search(Direction::Forward),
             KeyCode::Char('m') => bk.view = Some(&Mark),
             KeyCode::Char('\'') => bk.view = Some(&Jump),
+            KeyCode::Char('i') => bk.view = Some(&Metadata),
+            KeyCode::Char('?') => bk.start_search(Direction::Backward),
+            KeyCode::Char('/') => bk.start_search(Direction::Forward),
             KeyCode::Char('N') => {
                 bk.search(Direction::Backward);
             }
@@ -332,6 +345,7 @@ struct Chapter {
 }
 
 struct Bk<'a> {
+    meta: Vec<String>,
     chapters: Vec<Chapter>,
     // position in the book
     chapter: usize,
@@ -353,8 +367,9 @@ impl Bk<'_> {
     fn new(epub: epub::Epub, args: Props) -> Self {
         let (cols, rows) = terminal::size().unwrap();
         let width = min(cols, args.width) as usize;
-        let mut chapters = Vec::with_capacity(epub.chapters.len());
+        let meta = wrap(&epub.meta, width).into_iter().map(|(_, b)| b).collect();
 
+        let mut chapters = Vec::with_capacity(epub.chapters.len());
         for (text, title) in epub.chapters {
             let title = if title.chars().count() > width {
                 title
@@ -384,6 +399,7 @@ impl Bk<'_> {
         };
 
         Bk {
+            meta,
             line: min(
                 args.line,
                 chapters[args.chapter]
