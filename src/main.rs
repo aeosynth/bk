@@ -65,10 +65,15 @@ fn wrap(text: &str, width: usize) -> Vec<(usize, usize)> {
     lines
 }
 
+struct SearchArgs {
+    dir: Direction,
+    skip: bool,
+}
+
 #[derive(Clone)]
 enum Direction {
-    Forward,
-    Backward,
+    Next,
+    Prev,
 }
 
 trait View {
@@ -241,14 +246,19 @@ impl View for Page {
             KeyCode::Char('m') => bk.view = Some(&Mark),
             KeyCode::Char('\'') => bk.view = Some(&Jump),
             KeyCode::Char('i') => bk.view = Some(&Metadata),
-            KeyCode::Char('?') => bk.start_search(Direction::Backward),
-            KeyCode::Char('/') => bk.start_search(Direction::Forward),
-            // XXX temporarily broken (well needing to manually advance before searching)
+            KeyCode::Char('?') => bk.start_search(Direction::Prev),
+            KeyCode::Char('/') => bk.start_search(Direction::Next),
             KeyCode::Char('N') => {
-                bk.search(Direction::Backward);
+                bk.search(SearchArgs {
+                    dir: Direction::Prev,
+                    skip: true,
+                });
             }
             KeyCode::Char('n') => {
-                bk.search(Direction::Forward);
+                bk.search(SearchArgs {
+                    dir: Direction::Next,
+                    skip: true,
+                });
             }
             KeyCode::End | KeyCode::Char('G') => {
                 bk.mark('\'');
@@ -309,11 +319,18 @@ impl View for Search {
             KeyCode::Backspace => {
                 bk.query.pop();
                 bk.jump_reset();
-                bk.search(bk.dir.clone());
+                bk.search(SearchArgs {
+                    dir: bk.dir.clone(),
+                    skip: false,
+                });
             }
             KeyCode::Char(c) => {
                 bk.query.push(c);
-                if !bk.search(bk.dir.clone()) {
+                let args = SearchArgs {
+                    dir: bk.dir.clone(),
+                    skip: false,
+                };
+                if !bk.search(args) {
                     bk.jump_reset();
                 }
             }
@@ -345,8 +362,8 @@ impl View for Search {
             buf.push(String::new());
         }
         let prefix = match bk.dir {
-            Direction::Forward => '/',
-            Direction::Backward => '?',
+            Direction::Next => '/',
+            Direction::Prev => '?',
         };
         buf.push(format!("{}{}", prefix, bk.query));
         buf
@@ -429,7 +446,7 @@ impl Bk<'_> {
             rows: rows as usize,
             max_width: args.width,
             view: Some(view),
-            dir: Direction::Forward,
+            dir: Direction::Next,
             nav_top: 0,
             query: String::new(),
         }
@@ -514,7 +531,7 @@ impl Bk<'_> {
         self.dir = dir;
         self.view = Some(&Search);
     }
-    fn search(&mut self, dir: Direction) -> bool {
+    fn search(&mut self, args: SearchArgs) -> bool {
         let get_line = |lines: &Vec<(usize, usize)>, byte: usize| -> usize {
             match lines.binary_search_by_key(&byte, |&(a, _)| a) {
                 Ok(n) => n,
@@ -522,9 +539,10 @@ impl Bk<'_> {
             }
         };
         let (start, end) = self.chap().lines[self.line];
-        match dir {
-            Direction::Forward => {
-                let head = (self.chapter, start);
+        match args.dir {
+            Direction::Next => {
+                let byte = if args.skip { end } else { start };
+                let head = (self.chapter, byte);
                 let tail = (self.chapter + 1..self.chapters.len() - 1).map(|n| (n, 0));
                 for (c, byte) in iter::once(head).chain(tail) {
                     if let Some(index) = self.chapters[c].text[byte..].find(&self.query) {
@@ -535,8 +553,9 @@ impl Bk<'_> {
                 }
                 false
             }
-            Direction::Backward => {
-                let head = (self.chapter, end);
+            Direction::Prev => {
+                let byte = if args.skip { start } else { end };
+                let head = (self.chapter, byte);
                 let tail = (0..self.chapter)
                     .rev()
                     .map(|c| (c, self.chapters[c].text.len()));
