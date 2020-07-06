@@ -1,7 +1,11 @@
-use std::io::{stdout, Write};
-use std::{cmp::min, collections::HashMap, env, fs, iter, process::exit};
-
-use argh::FromArgs;
+use std::{
+    cmp::min,
+    collections::HashMap,
+    env, fs,
+    io::{stdout, Write},
+    iter,
+    process::exit,
+};
 
 use crossterm::{
     cursor,
@@ -379,7 +383,6 @@ struct Chapter {
 }
 
 struct Bk<'a> {
-    meta: Vec<String>,
     chapters: Vec<Chapter>,
     // position in the book
     chapter: usize,
@@ -393,6 +396,7 @@ struct Bk<'a> {
     // view state
     view: Option<&'a dyn View>,
     dir: Direction,
+    meta: Vec<String>,
     nav_top: usize,
     query: String,
 }
@@ -421,32 +425,34 @@ impl Bk<'_> {
             chapters.push(Chapter { title, text, lines });
         }
 
+        let line = match chapters[args.chapter]
+            .lines
+            .binary_search_by_key(&args.byte, |&(a, _)| a)
+        {
+            Ok(n) => n,
+            Err(n) => n - 1,
+        };
+
         let mut mark = HashMap::new();
         let view: &dyn View = if args.toc {
             // need an initial mark to reset to
-            mark.insert('\'', (args.chapter, args.line));
+            mark.insert('\'', (args.chapter, line));
             &Nav
         } else {
             &Page
         };
 
         Bk {
-            meta,
-            line: min(
-                args.line,
-                chapters[args.chapter]
-                    .lines
-                    .len()
-                    .saturating_sub(rows as usize),
-            ),
             chapters,
             chapter: args.chapter,
+            line,
             mark,
             cols,
             rows: rows as usize,
             max_width: args.width,
             view: Some(view),
             dir: Direction::Next,
+            meta,
             nav_top: 0,
             query: String::new(),
         }
@@ -572,7 +578,7 @@ impl Bk<'_> {
     }
 }
 
-#[derive(FromArgs)]
+#[derive(argh::FromArgs)]
 /// read a book
 struct Args {
     #[argh(positional)]
@@ -593,7 +599,7 @@ struct Args {
 
 struct Props {
     chapter: usize,
-    line: usize,
+    byte: usize,
     width: u16,
     toc: bool,
 }
@@ -613,7 +619,7 @@ fn init(save_path: &str) -> Option<(String, bool, Props)> {
         ))
     });
 
-    let (path, chapter, line) = match (save, path) {
+    let (path, chapter, byte) = match (save, path) {
         (Err(_), None) => return None,
         (Err(_), Some(path)) => (path, 0, 0),
         (Ok(save), None) => save,
@@ -631,7 +637,7 @@ fn init(save_path: &str) -> Option<(String, bool, Props)> {
         args.meta,
         Props {
             chapter,
-            line,
+            byte,
             width: args.width,
             toc: args.toc,
         },
@@ -665,7 +671,8 @@ fn main() {
     // i have never seen crossterm error
     bk.run().unwrap();
 
-    fs::write(save_path, format!("{}\n{}\n{}", path, bk.chapter, bk.line)).unwrap_or_else(|e| {
+    let byte = bk.chap().lines[bk.line].0;
+    fs::write(save_path, format!("{}\n{}\n{}", path, bk.chapter, byte)).unwrap_or_else(|e| {
         println!("error saving state: {}", e);
         exit(1);
     });
