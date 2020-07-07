@@ -656,7 +656,7 @@ fn main() {
         exit(1);
     });
 
-    let mut epub = epub::Epub::new(&path).unwrap_or_else(|e| {
+    let epub = epub::Epub::new(&path, meta).unwrap_or_else(|e| {
         println!("error reading epub: {}", e);
         exit(1);
     });
@@ -666,7 +666,6 @@ fn main() {
         exit(0);
     }
 
-    epub.get_chapters();
     let mut bk = Bk::new(epub, args);
     // i have never seen crossterm error
     bk.run().unwrap();

@@ -8,73 +8,18 @@ pub struct Epub {
 }
 
 impl Epub {
-    pub fn new(path: &str) -> std::io::Result<Self> {
+    pub fn new(path: &str, meta: bool) -> std::io::Result<Self> {
         let file = File::open(path)?;
         let mut epub = Epub {
             container: zip::ZipArchive::new(file)?,
             chapters: Vec::new(),
             meta: String::new(),
         };
-        epub.get_rootfile();
+        let chapters = epub.get_rootfile();
+        if !meta {
+            epub.get_chapters(chapters);
+        }
         Ok(epub)
-    }
-    pub fn get_chapters(&mut self) {
-        self.chapters = std::mem::take(&mut self.chapters)
-            .into_iter()
-            .filter_map(|(path, title)| {
-                let xml = self.get_text(&path);
-                // https://github.com/RazrFalcon/roxmltree/issues/12
-                // UnknownEntityReference for HTML entities
-                let doc = Document::parse(&xml).unwrap();
-                let body = doc.root_element().last_element_child().unwrap();
-                let mut chapter = String::new();
-                Epub::render(&mut chapter, body);
-                if chapter.is_empty() {
-                    None
-                } else {
-                    Some((chapter, title))
-                }
-            })
-            .collect();
-    }
-    fn render(buf: &mut String, n: Node) {
-        if n.is_text() {
-            let text = n.text().unwrap();
-            if !text.trim().is_empty() {
-                buf.push_str(text);
-            }
-            return;
-        }
-
-        match n.tag_name().name() {
-            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-                buf.push_str("\n\x1b[1m");
-                for c in n.children() {
-                    Self::render(buf, c);
-                }
-                buf.push_str("\x1b[0m\n");
-            }
-            "blockquote" | "p" | "tr" => {
-                buf.push('\n');
-                for c in n.children() {
-                    Self::render(buf, c);
-                }
-                buf.push('\n');
-            }
-            "li" => {
-                buf.push_str("\n- ");
-                for c in n.children() {
-                    Self::render(buf, c);
-                }
-                buf.push('\n');
-            }
-            "br" => buf.push('\n'),
-            _ => {
-                for c in n.children() {
-                    Self::render(buf, c);
-                }
-            }
-        }
     }
     fn get_text(&mut self, name: &str) -> String {
         let mut text = String::new();
@@ -85,7 +30,26 @@ impl Epub {
             .unwrap();
         text
     }
-    fn get_rootfile(&mut self) {
+    fn get_chapters(&mut self, chapters: Vec<(String, String)>) {
+        self.chapters = chapters
+            .into_iter()
+            .filter_map(|(path, title)| {
+                let xml = self.get_text(&path);
+                // https://github.com/RazrFalcon/roxmltree/issues/12
+                // UnknownEntityReference for HTML entities
+                let doc = Document::parse(&xml).unwrap();
+                let body = doc.root_element().last_element_child().unwrap();
+                let mut chapter = String::new();
+                render(body, &mut chapter);
+                if chapter.is_empty() {
+                    None
+                } else {
+                    Some((chapter, title))
+                }
+            })
+            .collect();
+    }
+    fn get_rootfile(&mut self) -> Vec<(String, String)> {
         let xml = self.get_text("META-INF/container.xml");
         let doc = Document::parse(&xml).unwrap();
         let path = doc
@@ -123,7 +87,6 @@ impl Epub {
             .for_each(|n| {
                 manifest.insert(n.attribute("id").unwrap(), n.attribute("href").unwrap());
             });
-
         if doc.root_element().attribute("version") == Some("3.0") {
             let path = manifest_node
                 .children()
@@ -133,52 +96,15 @@ impl Epub {
                 .unwrap();
             let xml = self.get_text(&format!("{}{}", rootdir, path));
             let doc = Document::parse(&xml).unwrap();
-
-            doc.descendants()
-                .find(|n| n.has_tag_name("nav"))
-                .unwrap()
-                .descendants()
-                .filter(|n| n.has_tag_name("a"))
-                .for_each(|n| {
-                    let path = n.attribute("href").unwrap().to_string();
-                    let text = n
-                        .descendants()
-                        .filter(Node::is_text)
-                        .map(|n| n.text().unwrap())
-                        .collect();
-                    nav.insert(path, text);
-                })
+            epub3(doc, &mut nav);
         } else {
             let toc = spine_node.attribute("toc").unwrap_or("ncx");
             let path = manifest.get(toc).unwrap();
             let xml = self.get_text(&format!("{}{}", rootdir, path));
             let doc = Document::parse(&xml).unwrap();
-
-            doc.descendants()
-                .find(|n| n.has_tag_name("navMap"))
-                .unwrap()
-                .descendants()
-                .filter(|n| n.has_tag_name("navPoint"))
-                .for_each(|n| {
-                    let path = n
-                        .descendants()
-                        .find(|n| n.has_tag_name("content"))
-                        .unwrap()
-                        .attribute("src")
-                        .unwrap()
-                        .to_string();
-                    let text = n
-                        .descendants()
-                        .find(|n| n.has_tag_name("text"))
-                        .unwrap()
-                        .text()
-                        .unwrap()
-                        .to_string();
-                    nav.insert(path, text);
-                })
+            epub2(doc, &mut nav);
         }
-
-        self.chapters = spine_node
+        spine_node
             .children()
             .filter(Node::is_element)
             .enumerate()
@@ -189,17 +115,87 @@ impl Epub {
                 let path = format!("{}{}", rootdir, path);
                 (path, label)
             })
-            .collect();
+            .collect()
     }
 }
 
-#[test]
-fn test_dir() {
-    let path = "/mnt/lit/read";
-    for entry in std::fs::read_dir(path).unwrap() {
-        let path = entry.unwrap().path();
-        let s = path.to_str().unwrap();
-        println!("testing: {}", s);
-        Epub::new(s).unwrap();
+fn render(n: Node, buf: &mut String) {
+    if n.is_text() {
+        let text = n.text().unwrap();
+        if !text.trim().is_empty() {
+            buf.push_str(text);
+        }
+        return;
     }
+
+    match n.tag_name().name() {
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            buf.push_str("\n\x1b[1m");
+            for c in n.children() {
+                render(c, buf);
+            }
+            buf.push_str("\x1b[0m\n");
+        }
+        "blockquote" | "p" | "tr" => {
+            buf.push('\n');
+            for c in n.children() {
+                render(c, buf);
+            }
+            buf.push('\n');
+        }
+        "li" => {
+            buf.push_str("\n- ");
+            for c in n.children() {
+                render(c, buf);
+            }
+            buf.push('\n');
+        }
+        "br" => buf.push('\n'),
+        _ => {
+            for c in n.children() {
+                render(c, buf);
+            }
+        }
+    }
+}
+
+fn epub2(doc: Document, nav: &mut HashMap<String, String>) {
+    doc.descendants()
+        .find(|n| n.has_tag_name("navMap"))
+        .unwrap()
+        .descendants()
+        .filter(|n| n.has_tag_name("navPoint"))
+        .for_each(|n| {
+            let path = n
+                .descendants()
+                .find(|n| n.has_tag_name("content"))
+                .unwrap()
+                .attribute("src")
+                .unwrap()
+                .to_string();
+            let text = n
+                .descendants()
+                .find(|n| n.has_tag_name("text"))
+                .unwrap()
+                .text()
+                .unwrap()
+                .to_string();
+            nav.insert(path, text);
+        });
+}
+fn epub3(doc: Document, nav: &mut HashMap<String, String>) {
+    doc.descendants()
+        .find(|n| n.has_tag_name("nav"))
+        .unwrap()
+        .descendants()
+        .filter(|n| n.has_tag_name("a"))
+        .for_each(|n| {
+            let path = n.attribute("href").unwrap().to_string();
+            let text = n
+                .descendants()
+                .filter(Node::is_text)
+                .map(|n| n.text().unwrap())
+                .collect();
+            nav.insert(path, text);
+        });
 }
