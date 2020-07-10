@@ -538,8 +538,14 @@ impl Bk<'_> {
             match event::read()? {
                 Event::Key(e) => view.run(self, e.code),
                 Event::Resize(cols, rows) => {
-                    self.cols = cols;
                     self.rows = rows as usize;
+                    if cols != self.cols {
+                        self.cols = cols;
+                        let width = min(cols, self.max_width) as usize;
+                        for c in &mut self.chapters {
+                            c.lines = wrap(&c.text, width);
+                        }
+                    }
                 }
                 // TODO
                 Event::Mouse(_) => (),
