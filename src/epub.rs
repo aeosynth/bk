@@ -1,9 +1,12 @@
+use crossterm::style::Attribute;
 use roxmltree::{Document, Node};
 use std::{collections::HashMap, fs::File, io::Read};
 
+type Attrs = Vec<(usize, Attribute)>;
+
 pub struct Epub {
     container: zip::ZipArchive<File>,
-    pub chapters: Vec<(String, String)>,
+    pub chapters: Vec<(String, String, Attrs)>,
     pub meta: String,
 }
 
@@ -33,18 +36,19 @@ impl Epub {
     fn get_chapters(&mut self, chapters: Vec<(String, String)>) {
         self.chapters = chapters
             .into_iter()
-            .filter_map(|(path, title)| {
+            .filter_map(|(title, path)| {
                 let xml = self.get_text(&path);
                 // https://github.com/RazrFalcon/roxmltree/issues/12
                 // UnknownEntityReference for HTML entities
                 let doc = Document::parse(&xml).unwrap();
                 let body = doc.root_element().last_element_child().unwrap();
-                let mut chapter = String::new();
-                render(body, &mut chapter);
-                if chapter.is_empty() {
+                let mut text = String::new();
+                let mut attrs = vec![(0, Attribute::Reset)];
+                render(body, &mut text, &mut attrs);
+                if text.is_empty() {
                     None
                 } else {
-                    Some((chapter, title))
+                    Some((title, text, attrs))
                 }
             })
             .collect();
@@ -113,13 +117,13 @@ impl Epub {
                 let path = manifest.remove(id).unwrap();
                 let label = nav.remove(path).unwrap_or_else(|| i.to_string());
                 let path = format!("{}{}", rootdir, path);
-                (path, label)
+                (label, path)
             })
             .collect()
     }
 }
 
-fn render(n: Node, buf: &mut String) {
+fn render(n: Node, buf: &mut String, attrs: &mut Attrs) {
     if n.is_text() {
         let text = n.text().unwrap();
         if !text.trim().is_empty() {
@@ -130,30 +134,32 @@ fn render(n: Node, buf: &mut String) {
 
     match n.tag_name().name() {
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-            buf.push_str("\n\x1b[1m");
+            buf.push('\n');
+            attrs.push((buf.len(), Attribute::Bold));
             for c in n.children() {
-                render(c, buf);
+                render(c, buf, attrs);
             }
-            buf.push_str("\x1b[0m\n");
+            attrs.push((buf.len(), Attribute::Reset));
+            buf.push('\n');
         }
         "blockquote" | "p" | "tr" => {
             buf.push('\n');
             for c in n.children() {
-                render(c, buf);
+                render(c, buf, attrs);
             }
             buf.push('\n');
         }
         "li" => {
             buf.push_str("\n- ");
             for c in n.children() {
-                render(c, buf);
+                render(c, buf, attrs);
             }
             buf.push('\n');
         }
         "br" => buf.push('\n'),
         _ => {
             for c in n.children() {
-                render(c, buf);
+                render(c, buf, attrs);
             }
         }
     }

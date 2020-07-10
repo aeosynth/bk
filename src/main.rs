@@ -1,5 +1,5 @@
 use std::{
-    cmp::min,
+    cmp::{max, min},
     collections::HashMap,
     env, fs,
     io::{stdout, Write},
@@ -300,13 +300,89 @@ impl View for Page {
         }
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
-        let c = bk.chap();
-        let end = min(bk.line + bk.rows, c.lines.len());
-        c.lines[bk.line..end]
-            .iter()
-            .map(|&(a, b)| String::from(&c.text[a..b]))
-            .collect()
+        render_page(bk, 0)
     }
+}
+
+fn render_page(bk: &Bk, offset: usize) -> Vec<String> {
+    let c = bk.chap();
+    let line_end = min(bk.line + bk.rows - offset, bk.chap().lines.len());
+
+    let attrs = {
+        let text_start = c.lines[bk.line].0;
+        let text_end = c.lines[line_end - 1].1;
+
+        let mut search = Vec::new();
+        if bk.query != "" {
+            for (pos, _) in c.text[text_start..text_end].match_indices(&bk.query) {
+                search.push((text_start + pos, Attribute::Reverse));
+                search.push((text_start + pos + bk.query.len(), Attribute::Reset));
+            }
+        }
+        let mut search_iter = search.into_iter();
+
+        let attr_end = match c.attrs.binary_search_by_key(&text_end, |&(pos, _)| pos) {
+            Ok(n) => n,
+            Err(n) => n,
+        };
+        let attr_start = c.attrs[..attr_end]
+            .iter()
+            .rposition(|&(pos, _)| pos <= text_start)
+            .unwrap();
+        // keep attr pos >= line start
+        let (pos, attr) = c.attrs[attr_start];
+        let head = (max(pos, text_start), attr);
+        let tail = &c.attrs[attr_start + 1..];
+        let mut attrs_iter = iter::once(&head).chain(tail.iter());
+
+        let mut merged = Vec::new();
+        let mut sn = search_iter.next();
+        let mut an = attrs_iter.next();
+        loop {
+            match (sn, an) {
+                (None, None) => panic!("does this happen?"),
+                (Some(s), None) => {
+                    merged.push(s);
+                    merged.extend(search_iter);
+                    break;
+                }
+                (None, Some(&a)) => {
+                    merged.push(a);
+                    merged.extend(attrs_iter);
+                    break;
+                }
+                (Some(s), Some(&a)) => {
+                    if s.0 < a.0 {
+                        merged.push(s);
+                        sn = search_iter.next();
+                    } else {
+                        merged.push(a);
+                        an = attrs_iter.next();
+                    }
+                }
+            }
+        }
+        merged
+    };
+
+    let mut buf = Vec::new();
+    let mut iter = attrs.into_iter().peekable();
+    for &(mut start, end) in &c.lines[bk.line..line_end] {
+        let mut s = String::new();
+        while let Some(a) = iter.peek() {
+            if a.0 <= end {
+                s.push_str(&c.text[start..a.0]);
+                s.push_str(&a.1.to_string());
+                start = a.0;
+                iter.next();
+            } else {
+                break;
+            }
+        }
+        s.push_str(&c.text[start..end]);
+        buf.push(s);
+    }
+    buf
 }
 
 struct Search;
@@ -342,25 +418,7 @@ impl View for Search {
         }
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
-        let c = bk.chap();
-        let end = min(bk.line + bk.rows - 1, c.lines.len());
-        let mut buf = Vec::with_capacity(bk.rows);
-
-        for &(a, b) in c.lines[bk.line..end].iter() {
-            let line = String::from(&c.text[a..b]);
-            if let Some(i) = line.find(&bk.query) {
-                buf.push(format!(
-                    "{}{}{}{}{}",
-                    &line[..i],
-                    Attribute::Reverse,
-                    &bk.query,
-                    Attribute::Reset,
-                    &line[i + bk.query.len()..],
-                ));
-            } else {
-                buf.push(line);
-            }
-        }
+        let mut buf = render_page(bk, 1);
 
         for _ in buf.len()..bk.rows - 1 {
             buf.push(String::new());
@@ -380,6 +438,7 @@ struct Chapter {
     text: String,
     // byte indexes
     lines: Vec<(usize, usize)>,
+    attrs: Vec<(usize, Attribute)>,
 }
 
 struct Bk<'a> {
@@ -411,7 +470,7 @@ impl Bk<'_> {
             .collect();
 
         let mut chapters = Vec::with_capacity(epub.chapters.len());
-        for (text, title) in epub.chapters {
+        for (title, text, attrs) in epub.chapters {
             let title = if title.chars().count() > width {
                 title
                     .chars()
@@ -422,7 +481,12 @@ impl Bk<'_> {
                 title
             };
             let lines = wrap(&text, width);
-            chapters.push(Chapter { title, text, lines });
+            chapters.push(Chapter {
+                title,
+                text,
+                lines,
+                attrs,
+            });
         }
 
         let line = match chapters[args.chapter]
