@@ -1,3 +1,12 @@
+use anyhow::Result;
+use crossterm::{
+    cursor,
+    event::{self, Event, KeyCode},
+    queue,
+    style::{Attribute, Print},
+    terminal,
+};
+use serde::{Deserialize, Serialize};
 use std::{
     cmp::{max, min},
     collections::HashMap,
@@ -5,14 +14,6 @@ use std::{
     io::{stdout, Write},
     iter,
     process::exit,
-};
-
-use crossterm::{
-    cursor,
-    event::{self, Event, KeyCode},
-    queue,
-    style::{Attribute, Print},
-    terminal,
 };
 
 mod epub;
@@ -674,74 +675,102 @@ struct Props {
     toc: bool,
 }
 
-fn init(save_path: &str) -> Option<(String, bool, Props)> {
-    let args: Args = argh::from_env();
-    // TODO nice error message instead of panic
-    let path = args
-        .path
-        .map(|s| fs::canonicalize(s).unwrap().to_str().unwrap().to_string());
-    let save = fs::read_to_string(save_path).and_then(|s| {
-        let mut lines = s.lines();
-        Ok((
-            lines.next().unwrap().to_string(),
-            lines.next().unwrap().parse::<usize>().unwrap(),
-            lines.next().unwrap().parse::<usize>().unwrap(),
-        ))
-    });
+#[derive(Default, Deserialize, Serialize)]
+struct Save {
+    last: String,
+    files: HashMap<String, (usize, usize)>,
+}
 
-    let (path, chapter, byte) = match (save, path) {
-        (Err(_), None) => return None,
-        (Err(_), Some(path)) => (path, 0, 0),
-        (Ok(save), None) => save,
-        (Ok(save), Some(path)) => {
-            if save.0 == path {
-                save
+struct State {
+    save: Save,
+    save_path: String,
+    path: String,
+    meta: bool,
+    bk: Props,
+}
+
+fn init() -> Result<State> {
+    let save_path = if cfg!(windows) {
+        format!("{}\\bk", env::var("APPDATA")?)
+    } else {
+        format!("{}/.local/share/bk", env::var("HOME")?)
+    };
+    // XXX will silently create a new default save if ron errors but path arg works.
+    // revisit if/when stabilizing. ez file format upgrades
+    let save = fs::read_to_string(&save_path)
+        .map_err(|e| anyhow::Error::new(e))
+        .and_then(|s| {
+            let save: Save = ron::from_str(&s)?;
+            Ok(save)
+        });
+    let args: Args = argh::from_env();
+
+    let mut path = args.path;
+    // abort on path error
+    if path.is_some() {
+        path = Some(
+            fs::canonicalize(path.unwrap())?
+                .to_str()
+                .unwrap()
+                .to_string(),
+        );
+    }
+
+    let (path, chapter, byte) = match (&save, &path) {
+        (Err(_), None) => return Err(anyhow::anyhow!("no path arg and no or invalid save file")),
+        (Err(_), Some(p)) => (p, 0, 0),
+        (Ok(save), None) => {
+            let &(chapter, byte) = save.files.get(&save.last).unwrap();
+            (&save.last, chapter, byte)
+        }
+        (Ok(save), Some(p)) => {
+            if save.files.contains_key(p) {
+                let &(chapter, byte) = save.files.get(p).unwrap();
+                (p, chapter, byte)
             } else {
-                (path, 0, 0)
+                (p, 0, 0)
             }
         }
     };
 
-    Some((
-        path,
-        args.meta,
-        Props {
+    Ok(State {
+        save_path,
+        path: path.clone(),
+        save: save.unwrap_or_default(),
+        meta: args.meta,
+        bk: Props {
             chapter,
             byte,
             width: args.width,
             toc: args.toc,
         },
-    ))
+    })
 }
 
 fn main() {
-    let save_path = if cfg!(windows) {
-        format!("{}\\bk", env::var("APPDATA").unwrap())
-    } else {
-        format!("{}/.local/share/bk", env::var("HOME").unwrap())
-    };
-
-    let (path, meta, args) = init(&save_path).unwrap_or_else(|| {
-        println!("error: need a path");
+    let mut state = init().unwrap_or_else(|e| {
+        println!("init error: {}", e);
         exit(1);
     });
-
-    let epub = epub::Epub::new(&path, meta).unwrap_or_else(|e| {
-        println!("error reading epub: {}", e);
+    let epub = epub::Epub::new(&state.path, state.meta).unwrap_or_else(|e| {
+        println!("epub error: {}", e);
         exit(1);
     });
-
-    if meta {
+    if state.meta {
         println!("{}", epub.meta);
         exit(0);
     }
-
-    let mut bk = Bk::new(epub, args);
-    // i have never seen crossterm error
+    let mut bk = Bk::new(epub, state.bk);
     bk.run().unwrap();
 
     let byte = bk.chap().lines[bk.line].0;
-    fs::write(save_path, format!("{}\n{}\n{}", path, bk.chapter, byte)).unwrap_or_else(|e| {
+    state
+        .save
+        .files
+        .insert(state.path.clone(), (bk.chapter, byte));
+    state.save.last = state.path;
+    let serialized = ron::to_string(&state.save).unwrap();
+    fs::write(state.save_path, serialized).unwrap_or_else(|e| {
         println!("error saving state: {}", e);
         exit(1);
     });

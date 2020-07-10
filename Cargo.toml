@@ -11,9 +11,12 @@ readme = "README.md"
 repository = "https://github.com/aeosynth/bk"
 
 [dependencies]
+anyhow = "1"
 argh = "0"
 crossterm = "0"
+ron = "0"
 roxmltree = "0"
+serde = "1"
 
 [dependencies.zip]
 version = "0"
