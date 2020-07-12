@@ -40,13 +40,20 @@ Type any function key (eg <kbd>F1</kbd>) to see the keybinds.
 - Theming: theme your terminal
 - Config file: create an alias with cli options
 
-# TODO
-- more configuration
-- better html support
-- test unicode
-- github actions / ci
-- css?
-- mobi?
+# Comparison
+|   | bk | epr/epy |
+| - | - | - |
+| language | rust | python |
+| runtime deps | none | python, curses |
+| additional formats | none | FictionBook |
+| incremental search | :heavy_check_mark: | :x: |
+| multi line search | :heavy_check_mark: | :x: |
+| regex search | :x: | :heavy_check_mark: |
+| links | :x: | :x: |
+| images | :x: | :heavy_check_mark: |
+| themes | :x: | :heavy_check_mark: |
+| choose file from history | :x: | :heavy_check_mark: |
+| external integration | none | dictionary |
 
 # Inspiration
 <https://github.com/wustho/epr>
