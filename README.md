@@ -54,9 +54,11 @@ Type any function key (eg <kbd>F1</kbd>) to see the keybinds.
 | themes | :x: | :heavy_check_mark: |
 | choose file from history | :x: | :heavy_check_mark: |
 | additional formats | :x: | FictionBook |
-| external integration | :x: | dictionary |
+| external integration | see 2 | dictionary |
 
 1: headers (h1-h6) are bolded
+
+2: you can use the `--meta` switch to use `bk` as a file previewer with eg [nnn](https://github.com/jarun/nnn/)
 
 # Inspiration
 <https://github.com/wustho/epr>
