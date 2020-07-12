@@ -79,11 +79,13 @@ impl Epub {
 
         meta_node
             .children()
-            .filter(|n| n.is_element() && n.tag_name().name() != "meta")
+            .filter(Node::is_element)
             .for_each(|n| {
                 let name = n.tag_name().name();
-                let text = n.text().unwrap();
-                self.meta.push_str(&format!("{}: {}\n", name, text));
+                let text = n.text();
+                if text.is_some() && name != "meta" {
+                    self.meta.push_str(&format!("{}: {}\n", name, text.unwrap()));
+                }
             });
         manifest_node
             .children()
