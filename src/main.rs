@@ -309,15 +309,16 @@ fn render_page(bk: &Bk, offset: usize) -> Vec<String> {
     let c = bk.chap();
     let line_end = min(bk.line + bk.rows - offset, bk.chap().lines.len());
 
+    // TODO support inline tags (strong)
     let attrs = {
         let text_start = c.lines[bk.line].0;
         let text_end = c.lines[line_end - 1].1;
 
         let mut search = Vec::new();
-        if bk.query != "" {
+        let qlen = bk.query.len();
+        if qlen > 0 {
             for (pos, _) in c.text[text_start..text_end].match_indices(&bk.query) {
-                search.push((text_start + pos, Attribute::Reverse));
-                search.push((text_start + pos + bk.query.len(), Attribute::Reset));
+                search.push(text_start + pos);
             }
         }
         let mut search_iter = search.into_iter();
@@ -343,8 +344,12 @@ fn render_page(bk: &Bk, offset: usize) -> Vec<String> {
             match (sn, an) {
                 (None, None) => panic!("does this happen?"),
                 (Some(s), None) => {
-                    merged.push(s);
-                    merged.extend(search_iter);
+                    merged.push((s, Attribute::Reverse));
+                    merged.push((s + qlen, Attribute::Reset));
+                    for s in search_iter {
+                        merged.push((s, Attribute::Reverse));
+                        merged.push((s + qlen, Attribute::Reset));
+                    }
                     break;
                 }
                 (None, Some(&a)) => {
@@ -353,8 +358,11 @@ fn render_page(bk: &Bk, offset: usize) -> Vec<String> {
                     break;
                 }
                 (Some(s), Some(&a)) => {
-                    if s.0 < a.0 {
-                        merged.push(s);
+                    if s < a.0 {
+                        merged.push((s, Attribute::Reverse));
+                        merged.push((s + qlen, Attribute::Reset));
+                        // this match arm is inside a header tag
+                        merged.push((s + qlen, Attribute::Bold));
                         sn = search_iter.next();
                     } else {
                         merged.push(a);
