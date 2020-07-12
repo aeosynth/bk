@@ -45,7 +45,7 @@ Type any function key (eg <kbd>F1</kbd>) to see the keybinds.
 | - | - | - |
 | language | rust | python |
 | runtime deps | none | python, curses |
-| additional formats | none | FictionBook |
+| styled tags | see 1 | :x: |
 | incremental search | :heavy_check_mark: | :x: |
 | multi line search | :heavy_check_mark: | :x: |
 | regex search | :x: | :heavy_check_mark: |
@@ -53,7 +53,10 @@ Type any function key (eg <kbd>F1</kbd>) to see the keybinds.
 | images | :x: | :heavy_check_mark: |
 | themes | :x: | :heavy_check_mark: |
 | choose file from history | :x: | :heavy_check_mark: |
-| external integration | none | dictionary |
+| additional formats | :x: | FictionBook |
+| external integration | :x: | dictionary |
+
+1: headers (h1-h6) are bolded
 
 # Inspiration
 <https://github.com/wustho/epr>
