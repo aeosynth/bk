@@ -304,6 +304,7 @@ impl View for Page {
         let c = bk.chap();
         let line_end = min(bk.line + bk.rows, c.lines.len());
 
+        // XXX does not pick up combined bold italic state if both attributes start above screen
         let attrs = {
             let text_start = c.lines[bk.line].0;
             let text_end = c.lines[line_end - 1].1;
