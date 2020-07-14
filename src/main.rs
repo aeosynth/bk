@@ -758,7 +758,10 @@ fn main() {
         exit(0);
     }
     let mut bk = Bk::new(epub, state.bk);
-    bk.run().unwrap();
+    bk.run().unwrap_or_else(|e| {
+        println!("run error: {}", e);
+        exit(1);
+    });
 
     let byte = bk.chap().lines[bk.line].0;
     state

@@ -1,3 +1,4 @@
+use anyhow::Result;
 use crossterm::style::Attribute;
 use roxmltree::{Document, Node};
 use std::{collections::HashMap, fs::File, io::Read};
@@ -11,14 +12,14 @@ pub struct Epub {
 }
 
 impl Epub {
-    pub fn new(path: &str, meta: bool) -> std::io::Result<Self> {
+    pub fn new(path: &str, meta: bool) -> Result<Self> {
         let file = File::open(path)?;
         let mut epub = Epub {
             container: zip::ZipArchive::new(file)?,
             chapters: Vec::new(),
             meta: String::new(),
         };
-        let chapters = epub.get_rootfile();
+        let chapters = epub.get_rootfile()?;
         if !meta {
             epub.get_chapters(chapters);
         }
@@ -53,9 +54,9 @@ impl Epub {
             })
             .collect();
     }
-    fn get_rootfile(&mut self) -> Vec<(String, String)> {
+    fn get_rootfile(&mut self) -> Result<Vec<(String, String)>> {
         let xml = self.get_text("META-INF/container.xml");
-        let doc = Document::parse(&xml).unwrap();
+        let doc = Document::parse(&xml)?;
         let path = doc
             .descendants()
             .find(|n| n.has_tag_name("rootfile"))
@@ -63,7 +64,7 @@ impl Epub {
             .attribute("full-path")
             .unwrap();
         let xml = self.get_text(path);
-        let doc = Document::parse(&xml).unwrap();
+        let doc = Document::parse(&xml)?;
 
         // zip expects unix path even on windows
         let rootdir = match path.rfind('/') {
@@ -101,16 +102,16 @@ impl Epub {
                 .attribute("href")
                 .unwrap();
             let xml = self.get_text(&format!("{}{}", rootdir, path));
-            let doc = Document::parse(&xml).unwrap();
+            let doc = Document::parse(&xml)?;
             epub3(doc, &mut nav);
         } else {
             let toc = spine_node.attribute("toc").unwrap_or("ncx");
             let path = manifest.get(toc).unwrap();
             let xml = self.get_text(&format!("{}{}", rootdir, path));
-            let doc = Document::parse(&xml).unwrap();
+            let doc = Document::parse(&xml)?;
             epub2(doc, &mut nav);
         }
-        spine_node
+        Ok(spine_node
             .children()
             .filter(Node::is_element)
             .enumerate()
@@ -121,7 +122,7 @@ impl Epub {
                 let path = format!("{}{}", rootdir, path);
                 (label, path)
             })
-            .collect()
+            .collect())
     }
 }
 
