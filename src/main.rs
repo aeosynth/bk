@@ -329,7 +329,7 @@ impl View for Page {
             // keep attr pos >= line start
             let (pos, attr) = c.attrs[attr_start];
             let head = (max(pos, text_start), attr);
-            let tail = &c.attrs[attr_start + 1..];
+            let tail = &c.attrs[attr_start + 1..attr_end];
             let mut attrs_iter = iter::once(&head).chain(tail.iter()).peekable();
 
             // seems like this should be simpler. use itertools?
@@ -527,7 +527,8 @@ impl Bk<'_> {
         while let Some(view) = self.view {
             let pad = self.cols.saturating_sub(self.max_width) / 2;
 
-            queue!(stdout, terminal::Clear(terminal::ClearType::All))?;
+            // clearing the screen doesn't reset attributes wtf
+            queue!(stdout, terminal::Clear(terminal::ClearType::All), Print(Attribute::Reset))?;
             for (i, line) in view.render(self).iter().enumerate() {
                 queue!(stdout, cursor::MoveTo(pad, i as u16), Print(line))?;
             }
