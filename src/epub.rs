@@ -174,6 +174,7 @@ fn render(n: Node, buf: &mut String, attrs: &mut Attrs) {
             buf.push('\n');
         }
         "br" => buf.push('\n'),
+        "hr" => buf.push_str("\n* * *\n"),
         _ => {
             for c in n.children() {
                 render(c, buf, attrs);
