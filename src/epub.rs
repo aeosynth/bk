@@ -141,8 +141,22 @@ fn render(n: Node, buf: &mut String, attrs: &mut Attrs) {
             for c in n.children() {
                 render(c, buf, attrs);
             }
-            attrs.push((buf.len(), Attribute::Reset));
+            attrs.push((buf.len(), Attribute::NoBold));
             buf.push('\n');
+        }
+        "em" => {
+            attrs.push((buf.len(), Attribute::Italic));
+            for c in n.children() {
+                render(c, buf, attrs);
+            }
+            attrs.push((buf.len(), Attribute::NoItalic));
+        }
+        "strong" => {
+            attrs.push((buf.len(), Attribute::Bold));
+            for c in n.children() {
+                render(c, buf, attrs);
+            }
+            attrs.push((buf.len(), Attribute::NoBold));
         }
         "blockquote" | "p" | "tr" => {
             buf.push('\n');

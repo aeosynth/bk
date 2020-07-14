@@ -301,98 +301,84 @@ impl View for Page {
         }
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
-        render_page(bk, 0)
-    }
-}
+        let c = bk.chap();
+        let line_end = min(bk.line + bk.rows, c.lines.len());
 
-fn render_page(bk: &Bk, offset: usize) -> Vec<String> {
-    let c = bk.chap();
-    let line_end = min(bk.line + bk.rows - offset, bk.chap().lines.len());
+        let attrs = {
+            let text_start = c.lines[bk.line].0;
+            let text_end = c.lines[line_end - 1].1;
 
-    // TODO support inline tags (strong)
-    let attrs = {
-        let text_start = c.lines[bk.line].0;
-        let text_end = c.lines[line_end - 1].1;
-
-        let mut search = Vec::new();
-        let qlen = bk.query.len();
-        if qlen > 0 {
-            for (pos, _) in c.text[text_start..text_end].match_indices(&bk.query) {
-                search.push(text_start + pos);
+            let qlen = bk.query.len();
+            let mut search = Vec::new();
+            if qlen > 0 {
+                for (pos, _) in c.text[text_start..text_end].match_indices(&bk.query) {
+                    search.push((text_start + pos, Attribute::Reverse));
+                    search.push((text_start + pos + qlen, Attribute::NoReverse));
+                }
             }
-        }
-        let mut search_iter = search.into_iter();
+            let mut search_iter = search.into_iter().peekable();
 
-        let attr_end = match c.attrs.binary_search_by_key(&text_end, |&(pos, _)| pos) {
-            Ok(n) => n,
-            Err(n) => n,
+            let attr_end = match c.attrs.binary_search_by_key(&text_end, |&(pos, _)| pos) {
+                Ok(n) => n,
+                Err(n) => n,
+            };
+            let attr_start = c.attrs[..attr_end]
+                .iter()
+                .rposition(|&(pos, _)| pos <= text_start)
+                .unwrap();
+            // keep attr pos >= line start
+            let (pos, attr) = c.attrs[attr_start];
+            let head = (max(pos, text_start), attr);
+            let tail = &c.attrs[attr_start + 1..];
+            let mut attrs_iter = iter::once(&head).chain(tail.iter()).peekable();
+
+            // seems like this should be simpler. use itertools?
+            let mut merged = Vec::new();
+            loop {
+                match (search_iter.peek(), attrs_iter.peek()) {
+                    (None, None) => panic!("double none wtf"),
+                    (Some(_), None) => {
+                        merged.extend(search_iter);
+                        break;
+                    }
+                    (None, Some(_)) => {
+                        merged.extend(attrs_iter);
+                        break;
+                    }
+                    (Some(&s), Some(&&a)) => {
+                        if s.0 < a.0 {
+                            merged.push(s);
+                            search_iter.next();
+                        } else {
+                            merged.push(a);
+                            attrs_iter.next();
+                        }
+                    }
+                }
+            }
+            merged
         };
-        let attr_start = c.attrs[..attr_end]
-            .iter()
-            .rposition(|&(pos, _)| pos <= text_start)
-            .unwrap();
-        // keep attr pos >= line start
-        let (pos, attr) = c.attrs[attr_start];
-        let head = (max(pos, text_start), attr);
-        let tail = &c.attrs[attr_start + 1..];
-        let mut attrs_iter = iter::once(&head).chain(tail.iter());
 
-        let mut merged = Vec::new();
-        let mut sn = search_iter.next();
-        let mut an = attrs_iter.next();
-        loop {
-            match (sn, an) {
-                (None, None) => panic!("does this happen?"),
-                (Some(s), None) => {
-                    merged.push((s, Attribute::Reverse));
-                    merged.push((s + qlen, Attribute::Reset));
-                    for s in search_iter {
-                        merged.push((s, Attribute::Reverse));
-                        merged.push((s + qlen, Attribute::Reset));
-                    }
+        let mut buf = Vec::new();
+        let mut iter = attrs.into_iter().peekable();
+        for &(mut start, end) in &c.lines[bk.line..line_end] {
+            let mut s = String::new();
+            while let Some(&(pos, attr)) = iter.peek() {
+                if pos > end {
                     break;
                 }
-                (None, Some(&a)) => {
-                    merged.push(a);
-                    merged.extend(attrs_iter);
-                    break;
-                }
-                (Some(s), Some(&a)) => {
-                    if s < a.0 {
-                        merged.push((s, Attribute::Reverse));
-                        merged.push((s + qlen, Attribute::Reset));
-                        // this match arm is inside a header tag
-                        merged.push((s + qlen, Attribute::Bold));
-                        sn = search_iter.next();
-                    } else {
-                        merged.push(a);
-                        an = attrs_iter.next();
-                    }
-                }
-            }
-        }
-        merged
-    };
-
-    let mut buf = Vec::new();
-    let mut iter = attrs.into_iter().peekable();
-    for &(mut start, end) in &c.lines[bk.line..line_end] {
-        let mut s = String::new();
-        while let Some(a) = iter.peek() {
-            if a.0 <= end {
-                s.push_str(&c.text[start..a.0]);
-                s.push_str(&a.1.to_string());
-                start = a.0;
+                s.push_str(&c.text[start..pos]);
+                s.push_str(&attr.to_string());
+                start = pos;
                 iter.next();
-            } else {
-                break;
             }
+            s.push_str(&c.text[start..end]);
+            buf.push(s);
         }
-        s.push_str(&c.text[start..end]);
-        buf.push(s);
+        buf
     }
-    buf
 }
+
 
 struct Search;
 impl View for Search {
@@ -427,10 +413,13 @@ impl View for Search {
         }
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
-        let mut buf = render_page(bk, 1);
-
-        for _ in buf.len()..bk.rows - 1 {
-            buf.push(String::new());
+        let mut buf = Page::render(&Page, bk);
+        if buf.len() == bk.rows {
+            buf.pop();
+        } else {
+            for _ in buf.len()..bk.rows - 1 {
+                buf.push(String::new());
+            }
         }
         let prefix = match bk.dir {
             Direction::Next => '/',
