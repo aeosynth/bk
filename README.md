@@ -1,13 +1,14 @@
 # bk
-bk is a WIP terminal Epub reader, written in Rust.
+bk is a WIP terminal EPUB reader, written in Rust.
 
 # Features
 - Cross platform - Linux, macOS and Windows support
 - Single binary, instant startup
-- Epub 2/3 support
+- EPUB 2/3 support
 - Vim bindings
 - Incremental search
 - Bookmarks
+- Inline styles (bold/italic)
 
 # Install
 Install from crates.io:
@@ -31,21 +32,20 @@ or from github:
       -w, --width       characters per line
       --help            display usage information
 
-Running `bk` without a path will load the most recent Epub.
+Running `bk` without a path will load the most recent EPUB.
 
 Type any function key (eg <kbd>F1</kbd>) to see the keybinds.
 
-# Configuration alternatives
+Check if your terminal supports italics:
 
-- Theming: theme your terminal
-- Config file: create an alias with cli options
+    echo -e "\e[3mitalic\e[0m"
 
 # Comparison
 |   | bk | epr/epy |
 | - | - | - |
 | language | rust | python |
-| runtime deps | none | python, curses |
-| styled tags | see 1 | :x: |
+| runtime deps | :x: | python, curses |
+| inline styles | :heavy_check_mark: | :x: |
 | incremental search | :heavy_check_mark: | :x: |
 | multi line search | :heavy_check_mark: | :x: |
 | regex search | :x: | :heavy_check_mark: |
@@ -54,11 +54,9 @@ Type any function key (eg <kbd>F1</kbd>) to see the keybinds.
 | themes | :x: | :heavy_check_mark: |
 | choose file from history | :x: | :heavy_check_mark: |
 | additional formats | :x: | FictionBook |
-| external integration | see 2 | dictionary |
+| external integration | see 1 | dictionary |
 
-1: headers (h1-h6) are bolded
-
-2: you can use the `--meta` switch to use `bk` as a file previewer with eg [nnn](https://github.com/jarun/nnn/)
+1: you can use the `--meta` switch to use `bk` as a file previewer with eg [nnn](https://github.com/jarun/nnn/)
 
 # Inspiration
 <https://github.com/wustho/epr>
