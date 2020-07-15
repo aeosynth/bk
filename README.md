@@ -43,17 +43,16 @@ Check if your terminal supports italics:
 # Comparison
 |   | bk | epr/epy |
 | - | - | - |
-| language | rust | python |
-| runtime deps | :x: | python, curses |
-| inline styles | :heavy_check_mark: | :x: |
-| incremental search | :heavy_check_mark: | :x: |
-| multi line search | :heavy_check_mark: | :x: |
-| regex search | :x: | :heavy_check_mark: |
-| links | :x: | :x: |
-| images | :x: | :heavy_check_mark: |
-| themes | :x: | :heavy_check_mark: |
-| choose file from history | :x: | :heavy_check_mark: |
-| additional formats | :x: | FictionBook |
+| runtime deps | ❌ | python, curses |
+| inline styles | ✔️ | ❌ |
+| incremental search | ✔️ | ❌ |
+| multi line search | ✔️ | ❌ |
+| regex search | ❌ | ✔️ |
+| links | ❌ | ❌ |
+| images | ❌ | ✔️ |
+| themes | ❌ | ✔️ |
+| choose file from history | ❌ | ✔️ |
+| additional formats | ❌ | FictionBook |
 | external integration | see 1 | dictionary |
 
 1: you can use the `--meta` switch to use `bk` as a file previewer with eg [nnn](https://github.com/jarun/nnn/)
