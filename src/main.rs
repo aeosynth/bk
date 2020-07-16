@@ -8,7 +8,7 @@ use crossterm::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    cmp::{max, min},
+    cmp::min,
     collections::HashMap,
     env, fs,
     io::{stdout, Write},
@@ -17,6 +17,7 @@ use std::{
 };
 
 mod epub;
+use epub::Chapter;
 
 // XXX assumes a char is i unit wide
 fn wrap(text: &str, width: usize) -> Vec<(usize, usize)> {
@@ -304,7 +305,6 @@ impl View for Page {
         let c = bk.chap();
         let line_end = min(bk.line + bk.rows, c.lines.len());
 
-        // XXX does not pick up combined bold italic state if both attributes start above screen
         let attrs = {
             let text_start = c.lines[bk.line].0;
             let text_end = c.lines[line_end - 1].1;
@@ -319,25 +319,34 @@ impl View for Page {
             }
             let mut search_iter = search.into_iter().peekable();
 
-            let attr_end = match c.attrs.binary_search_by_key(&text_end, |&(pos, _)| pos) {
-                Ok(n) => n,
-                Err(n) => n,
-            };
-            let attr_start = c.attrs[..attr_end]
-                .iter()
-                .rposition(|&(pos, _)| pos <= text_start)
-                .unwrap();
-            // keep attr pos >= line start
-            let (pos, attr) = c.attrs[attr_start];
-            let head = (max(pos, text_start), attr);
-            let tail = &c.attrs[attr_start + 1..attr_end];
-            let mut attrs_iter = iter::once(&head).chain(tail.iter()).peekable();
-
-            // seems like this should be simpler. use itertools?
             let mut merged = Vec::new();
+            let attr_start = match c
+                .attrs
+                .binary_search_by_key(&text_start, |&(pos, _, _)| pos)
+            {
+                Ok(n) => n,
+                Err(n) => n - 1,
+            };
+            let mut attrs_iter = c.attrs[attr_start..].iter();
+            let (_, _, attr) = attrs_iter.next().unwrap();
+            if attr.has(Attribute::Bold) {
+                merged.push((text_start, Attribute::Bold));
+            }
+            if attr.has(Attribute::Italic) {
+                merged.push((text_start, Attribute::Italic));
+            }
+            if attr.has(Attribute::Underlined) {
+                merged.push((text_start, Attribute::Underlined));
+            }
+            let mut attrs_iter = attrs_iter
+                .map(|&(pos, a, _)| (pos, a))
+                .take_while(|(pos, _)| pos <= &text_end)
+                .peekable();
+
+            // use itertools?
             loop {
                 match (search_iter.peek(), attrs_iter.peek()) {
-                    (None, None) => panic!("double none wtf"),
+                    (None, None) => break,
                     (Some(_), None) => {
                         merged.extend(search_iter);
                         break;
@@ -346,7 +355,7 @@ impl View for Page {
                         merged.extend(attrs_iter);
                         break;
                     }
-                    (Some(&s), Some(&&a)) => {
+                    (Some(&s), Some(&a)) => {
                         if s.0 < a.0 {
                             merged.push(s);
                             search_iter.next();
@@ -357,6 +366,7 @@ impl View for Page {
                     }
                 }
             }
+
             merged
         };
 
@@ -379,7 +389,6 @@ impl View for Page {
         buf
     }
 }
-
 
 struct Search;
 impl View for Search {
@@ -431,17 +440,8 @@ impl View for Search {
     }
 }
 
-struct Chapter {
-    title: String,
-    // a single string for searching
-    text: String,
-    // byte indexes
-    lines: Vec<(usize, usize)>,
-    attrs: Vec<(usize, Attribute)>,
-}
-
 struct Bk<'a> {
-    chapters: Vec<Chapter>,
+    chapters: Vec<epub::Chapter>,
     // position in the book
     chapter: usize,
     line: usize,
@@ -468,24 +468,17 @@ impl Bk<'_> {
             .map(|(a, b)| String::from(&epub.meta[a..b]))
             .collect();
 
-        let mut chapters = Vec::with_capacity(epub.chapters.len());
-        for (title, text, attrs) in epub.chapters {
-            let title = if title.chars().count() > width {
-                title
+        let mut chapters = epub.chapters;
+        for c in &mut chapters {
+            c.lines = wrap(&c.text, width);
+            if c.title.chars().count() > width {
+                c.title = c
+                    .title
                     .chars()
                     .take(width - 1)
                     .chain(iter::once('…'))
-                    .collect()
-            } else {
-                title
-            };
-            let lines = wrap(&text, width);
-            chapters.push(Chapter {
-                title,
-                text,
-                lines,
-                attrs,
-            });
+                    .collect();
+            }
         }
 
         let line = match chapters[args.chapter]
@@ -528,8 +521,11 @@ impl Bk<'_> {
         while let Some(view) = self.view {
             let pad = self.cols.saturating_sub(self.max_width) / 2;
 
-            // clearing the screen doesn't reset attributes wtf
-            queue!(stdout, terminal::Clear(terminal::ClearType::All), Print(Attribute::Reset))?;
+            queue!(
+                stdout,
+                terminal::Clear(terminal::ClearType::All),
+                Print(Attribute::Reset)
+            )?;
             for (i, line) in view.render(self).iter().enumerate() {
                 queue!(stdout, cursor::MoveTo(pad, i as u16), Print(line))?;
             }

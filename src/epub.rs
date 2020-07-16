@@ -1,13 +1,20 @@
 use anyhow::Result;
-use crossterm::style::Attribute;
+use crossterm::style::{Attribute, Attributes};
 use roxmltree::{Document, Node};
 use std::{collections::HashMap, fs::File, io::Read};
 
-type Attrs = Vec<(usize, Attribute)>;
+pub struct Chapter {
+    pub title: String,
+    // single string for search
+    pub text: String,
+    pub lines: Vec<(usize, usize)>,
+    // crossterm gives us a bitset but doesn't let us diff it, so store the state transition
+    pub attrs: Vec<(usize, Attribute, Attributes)>,
+}
 
 pub struct Epub {
     container: zip::ZipArchive<File>,
-    pub chapters: Vec<(String, String, Attrs)>,
+    pub chapters: Vec<Chapter>,
     pub meta: String,
 }
 
@@ -43,13 +50,18 @@ impl Epub {
                 // UnknownEntityReference for HTML entities
                 let doc = Document::parse(&xml).unwrap();
                 let body = doc.root_element().last_element_child().unwrap();
-                let mut text = String::new();
-                let mut attrs = vec![(0, Attribute::Reset)];
-                render(body, &mut text, &mut attrs);
-                if text.is_empty() {
+                let attrs = Attributes::default();
+                let mut c = Chapter {
+                    title,
+                    text: String::new(),
+                    lines: Vec::new(),
+                    attrs: vec![(0, Attribute::Reset, attrs)],
+                };
+                render(body, &mut c, attrs);
+                if c.text.is_empty() {
                     None
                 } else {
-                    Some((title, text, attrs))
+                    Some(c)
                 }
             })
             .collect();
@@ -78,16 +90,14 @@ impl Epub {
         let manifest_node = children.next().unwrap();
         let spine_node = children.next().unwrap();
 
-        meta_node
-            .children()
-            .filter(Node::is_element)
-            .for_each(|n| {
-                let name = n.tag_name().name();
-                let text = n.text();
-                if text.is_some() && name != "meta" {
-                    self.meta.push_str(&format!("{}: {}\n", name, text.unwrap()));
-                }
-            });
+        meta_node.children().filter(Node::is_element).for_each(|n| {
+            let name = n.tag_name().name();
+            let text = n.text();
+            if text.is_some() && name != "meta" {
+                self.meta
+                    .push_str(&format!("{}: {}\n", name, text.unwrap()));
+            }
+        });
         manifest_node
             .children()
             .filter(Node::is_element)
@@ -126,58 +136,70 @@ impl Epub {
     }
 }
 
-fn render(n: Node, buf: &mut String, attrs: &mut Attrs) {
+fn render(n: Node, c: &mut Chapter, attrs: Attributes) {
     if n.is_text() {
         let text = n.text().unwrap();
         if !text.trim().is_empty() {
-            buf.push_str(text);
+            c.text.push_str(text);
         }
         return;
     }
 
+    // fuck this gay earth
     match n.tag_name().name() {
-        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
-            buf.push('\n');
-            attrs.push((buf.len(), Attribute::Bold));
-            for c in n.children() {
-                render(c, buf, attrs);
+        "a" => {
+            let a = Attribute::Underlined;
+            c.attrs.push((c.text.len(), a, attrs | a));
+            for child in n.children() {
+                render(child, c, attrs | a);
             }
-            attrs.push((buf.len(), Attribute::NoBold));
-            buf.push('\n');
+            c.attrs.push((c.text.len(), Attribute::NoUnderline, attrs));
+        }
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            c.text.push('\n');
+            let a = Attribute::Bold;
+            c.attrs.push((c.text.len(), a, attrs | a));
+            for child in n.children() {
+                render(child, c, attrs | a);
+            }
+            c.attrs.push((c.text.len(), Attribute::NoBold, attrs));
+            c.text.push('\n');
         }
         "em" => {
-            attrs.push((buf.len(), Attribute::Italic));
-            for c in n.children() {
-                render(c, buf, attrs);
+            let a = Attribute::Italic;
+            c.attrs.push((c.text.len(), a, attrs | a));
+            for child in n.children() {
+                render(child, c, attrs | a);
             }
-            attrs.push((buf.len(), Attribute::NoItalic));
+            c.attrs.push((c.text.len(), Attribute::NoItalic, attrs));
         }
         "strong" => {
-            attrs.push((buf.len(), Attribute::Bold));
-            for c in n.children() {
-                render(c, buf, attrs);
+            let a = Attribute::Bold;
+            c.attrs.push((c.text.len(), a, attrs | a));
+            for child in n.children() {
+                render(child, c, attrs | a);
             }
-            attrs.push((buf.len(), Attribute::NoBold));
+            c.attrs.push((c.text.len(), Attribute::NoBold, attrs));
         }
         "blockquote" | "p" | "tr" => {
-            buf.push('\n');
-            for c in n.children() {
-                render(c, buf, attrs);
+            c.text.push('\n');
+            for child in n.children() {
+                render(child, c, attrs);
             }
-            buf.push('\n');
+            c.text.push('\n');
         }
         "li" => {
-            buf.push_str("\n- ");
-            for c in n.children() {
-                render(c, buf, attrs);
+            c.text.push_str("\n- ");
+            for child in n.children() {
+                render(child, c, attrs);
             }
-            buf.push('\n');
+            c.text.push('\n');
         }
-        "br" => buf.push('\n'),
-        "hr" => buf.push_str("\n* * *\n"),
+        "br" => c.text.push('\n'),
+        "hr" => c.text.push_str("\n* * *\n"),
         _ => {
-            for c in n.children() {
-                render(c, buf, attrs);
+            for child in n.children() {
+                render(child, c, attrs);
             }
         }
     }
