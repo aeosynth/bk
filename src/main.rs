@@ -693,7 +693,7 @@ fn init() -> Result<State> {
     // XXX will silently create a new default save if ron errors but path arg works.
     // revisit if/when stabilizing. ez file format upgrades
     let save = fs::read_to_string(&save_path)
-        .map_err(|e| anyhow::Error::new(e))
+        .map_err(anyhow::Error::new)
         .and_then(|s| {
             let save: Save = ron::from_str(&s)?;
             Ok(save)

@@ -115,8 +115,8 @@ impl Epub {
             let doc = Document::parse(&xml)?;
             epub3(doc, &mut nav);
         } else {
-            let toc = spine_node.attribute("toc").unwrap_or("ncx");
-            let path = manifest.get(toc).unwrap();
+            let id = spine_node.attribute("toc").unwrap_or("ncx");
+            let path = manifest.get(id).unwrap();
             let xml = self.get_text(&format!("{}{}", rootdir, path));
             let doc = Document::parse(&xml)?;
             epub2(doc, &mut nav);
