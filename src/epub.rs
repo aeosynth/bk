@@ -10,6 +10,7 @@ pub struct Chapter {
     pub lines: Vec<(usize, usize)>,
     // crossterm gives us a bitset but doesn't let us diff it, so store the state transition
     pub attrs: Vec<(usize, Attribute, Attributes)>,
+    state: Attributes,
 }
 
 pub struct Epub {
@@ -50,14 +51,15 @@ impl Epub {
                 // UnknownEntityReference for HTML entities
                 let doc = Document::parse(&xml).unwrap();
                 let body = doc.root_element().last_element_child().unwrap();
-                let attrs = Attributes::default();
+                let state = Attributes::default();
                 let mut c = Chapter {
                     title,
                     text: String::new(),
                     lines: Vec::new(),
-                    attrs: vec![(0, Attribute::Reset, attrs)],
+                    attrs: vec![(0, Attribute::Reset, state)],
+                    state,
                 };
-                render(body, &mut c, attrs);
+                render(body, &mut c);
                 if c.text.is_empty() {
                     None
                 } else {
@@ -136,7 +138,19 @@ impl Epub {
     }
 }
 
-fn render(n: Node, c: &mut Chapter, attrs: Attributes) {
+impl Chapter {
+    fn render(&mut self, n: Node, open: Attribute, close: Attribute) {
+        self.state.set(open);
+        self.attrs.push((self.text.len(), open, self.state));
+        for child in n.children() {
+            render(child, self);
+        }
+        self.state.unset(open);
+        self.attrs.push((self.text.len(), close, self.state));
+    }
+}
+
+fn render(n: Node, c: &mut Chapter) {
     if n.is_text() {
         let text = n.text().unwrap();
         if !text.trim().is_empty() {
@@ -145,61 +159,34 @@ fn render(n: Node, c: &mut Chapter, attrs: Attributes) {
         return;
     }
 
-    // fuck this gay earth
     match n.tag_name().name() {
-        "a" => {
-            let a = Attribute::Underlined;
-            c.attrs.push((c.text.len(), a, attrs | a));
-            for child in n.children() {
-                render(child, c, attrs | a);
-            }
-            c.attrs.push((c.text.len(), Attribute::NoUnderline, attrs));
-        }
+        "br" => c.text.push('\n'),
+        "hr" => c.text.push_str("\n* * *\n"),
+        "a" => c.render(n, Attribute::Underlined, Attribute::NoUnderline),
+        "em" => c.render(n, Attribute::Italic, Attribute::NoItalic),
+        "strong" => c.render(n, Attribute::Bold, Attribute::NoBold),
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
             c.text.push('\n');
-            let a = Attribute::Bold;
-            c.attrs.push((c.text.len(), a, attrs | a));
-            for child in n.children() {
-                render(child, c, attrs | a);
-            }
-            c.attrs.push((c.text.len(), Attribute::NoBold, attrs));
+            c.render(n, Attribute::Bold, Attribute::NoBold);
             c.text.push('\n');
-        }
-        "em" => {
-            let a = Attribute::Italic;
-            c.attrs.push((c.text.len(), a, attrs | a));
-            for child in n.children() {
-                render(child, c, attrs | a);
-            }
-            c.attrs.push((c.text.len(), Attribute::NoItalic, attrs));
-        }
-        "strong" => {
-            let a = Attribute::Bold;
-            c.attrs.push((c.text.len(), a, attrs | a));
-            for child in n.children() {
-                render(child, c, attrs | a);
-            }
-            c.attrs.push((c.text.len(), Attribute::NoBold, attrs));
         }
         "blockquote" | "p" | "tr" => {
             c.text.push('\n');
             for child in n.children() {
-                render(child, c, attrs);
+                render(child, c);
             }
             c.text.push('\n');
         }
         "li" => {
             c.text.push_str("\n- ");
             for child in n.children() {
-                render(child, c, attrs);
+                render(child, c);
             }
             c.text.push('\n');
         }
-        "br" => c.text.push('\n'),
-        "hr" => c.text.push_str("\n* * *\n"),
         _ => {
             for child in n.children() {
-                render(child, c, attrs);
+                render(child, c);
             }
         }
     }
