@@ -17,6 +17,7 @@ crossterm = "0"
 ron = "0"
 roxmltree = "0"
 serde = "1"
+unicode-width = "0"
 
 [dependencies.zip]
 version = "0"

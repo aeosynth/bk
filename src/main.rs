@@ -15,56 +15,60 @@ use std::{
     iter,
     process::exit,
 };
+use unicode_width::UnicodeWidthChar;
 
 mod epub;
 use epub::Chapter;
 
-// XXX assumes a char is i unit wide
-fn wrap(text: &str, width: usize) -> Vec<(usize, usize)> {
+fn wrap(text: &str, max_cols: usize) -> Vec<(usize, usize)> {
     let mut lines = Vec::new();
     // bytes
     let mut start = 0;
     let mut end = 0;
-    // chars after the break
+    // cols after the break
     let mut after = 0;
-    // chars in unbroken line
-    let mut len = 0;
+    // cols of unbroken line
+    let mut cols = 0;
     // are we breaking on whitespace?
-    let mut skip = false;
+    let mut space = false;
 
+    // should probably use unicode_segmentation grapheme_indices
     for (i, c) in text.char_indices() {
-        len += 1;
+        // https://github.com/unicode-rs/unicode-width/issues/6
+        let char_cols = c.width().unwrap_or(0);
+        cols += char_cols;
         match c {
             '\n' => {
                 after = 0;
                 end = i;
-                skip = true;
-                len = width + 1;
+                space = true;
+                cols = max_cols + 1;
             }
             ' ' => {
                 after = 0;
                 end = i;
-                skip = true;
+                space = true;
             }
-            '-' | '—' if len <= width => {
+            '-' | '—' if cols <= max_cols => {
                 after = 0;
                 end = i + c.len_utf8();
-                skip = false;
+                space = false;
             }
-            _ => after += 1,
+            _ => after += char_cols,
         }
-        if len > width {
-            if len == after {
-                after = 1;
+        if cols > max_cols {
+            // break a single long word
+            if cols == after {
+                after = char_cols;
                 end = i;
-                skip = false;
+                space = false;
             }
             lines.push((start, end));
             start = end;
-            if skip {
+            if space {
                 start += 1;
             }
-            len = after;
+            cols = after;
         }
     }
 
