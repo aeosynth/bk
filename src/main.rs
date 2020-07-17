@@ -8,7 +8,7 @@ use crossterm::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    cmp::{Ordering, min},
+    cmp::{min, Ordering},
     collections::HashMap,
     env, fs,
     io::{stdout, Write},
@@ -73,6 +73,13 @@ fn wrap(text: &str, max_cols: usize) -> Vec<(usize, usize)> {
     }
 
     lines
+}
+
+fn get_line (lines: &Vec<(usize, usize)>, byte: usize) -> usize {
+    match lines.binary_search_by_key(&byte, |&(a, _)| a) {
+        Ok(n) => n,
+        Err(n) => n - 1,
+    }
 }
 
 struct SearchArgs {
@@ -270,9 +277,10 @@ impl View for Page {
                     }
                 });
                 if let Ok(i) = r {
-                    let path = &c.links[i].2;
-                    let &pos = bk.links.get(path).unwrap();
-                    bk.jump(pos);
+                    let url = &c.links[i].2;
+                    let &(chapter, byte) = bk.links.get(url).unwrap();
+                    let line = get_line(&bk.chapters[chapter].lines, byte);
+                    bk.jump((chapter, line));
                 }
             }
             MouseEvent::ScrollDown(_, _, _) => bk.scroll_down(3),
@@ -522,13 +530,7 @@ impl Bk<'_> {
             }
         }
 
-        let line = match chapters[args.chapter]
-            .lines
-            .binary_search_by_key(&args.byte, |&(a, _)| a)
-        {
-            Ok(n) => n,
-            Err(n) => n - 1,
-        };
+        let line = get_line(&chapters[args.chapter].lines, args.byte);
 
         let mut mark = HashMap::new();
         let view: &dyn View = if args.toc {
@@ -653,12 +655,6 @@ impl Bk<'_> {
         self.view = Some(&Search);
     }
     fn search(&mut self, args: SearchArgs) -> bool {
-        let get_line = |lines: &Vec<(usize, usize)>, byte: usize| -> usize {
-            match lines.binary_search_by_key(&byte, |&(a, _)| a) {
-                Ok(n) => n,
-                Err(n) => n - 1,
-            }
-        };
         let (start, end) = self.chap().lines[self.line];
         match args.dir {
             Direction::Next => {

@@ -11,6 +11,7 @@ pub struct Chapter {
     // crossterm gives us a bitset but doesn't let us diff it, so store the state transition
     pub attrs: Vec<(usize, Attribute, Attributes)>,
     pub links: Vec<(usize, usize, String)>,
+    frag: Vec<(String, usize)>,
     state: Attributes,
 }
 
@@ -60,13 +61,18 @@ impl Epub {
                 attrs: vec![(0, Attribute::Reset, state)],
                 state,
                 links: Vec::new(),
+                frag: Vec::new(),
             };
             render(body, &mut c);
-            if !c.text.is_empty() {
-                let key = path.rsplit('/').next().unwrap().to_string();
-                self.links.insert(key, (self.chapters.len(), 0));
-                self.chapters.push(c);
+            if c.text.is_empty() {
+                continue;
             }
+            for (id, pos) in c.frag.drain(..) {
+                let name = path.rsplit('/').next().unwrap();
+                let url = format!("{}#{}", name, id);
+                self.links.insert(url, (self.chapters.len(), pos));
+            }
+            self.chapters.push(c);
         }
     }
     fn get_spine(&mut self) -> Result<Vec<(String, String)>> {
@@ -167,12 +173,9 @@ fn render(n: Node, c: &mut Chapter) {
             if let Some(url) = n.attribute("href") {
                 let start = c.text.len();
                 c.render(n, Attribute::Underlined, Attribute::NoUnderline);
-                let url = url.split('#').next().unwrap().to_string();
-                c.links.push((
-                    start,
-                    c.text.len(),
-                    url,
-                ));
+                c.links.push((start, c.text.len(), url.to_string()));
+            } else if let Some(id) = n.attribute("id") {
+                c.frag.push((id.to_string(), c.text.len()));
             }
         }
         "em" => c.render(n, Attribute::Italic, Attribute::NoItalic),
