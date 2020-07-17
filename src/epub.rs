@@ -10,6 +10,7 @@ pub struct Chapter {
     pub lines: Vec<(usize, usize)>,
     // crossterm gives us a bitset but doesn't let us diff it, so store the state transition
     pub attrs: Vec<(usize, Attribute, Attributes)>,
+    pub links: Vec<(usize, usize, String)>,
     state: Attributes,
 }
 
@@ -17,6 +18,7 @@ pub struct Epub {
     container: zip::ZipArchive<File>,
     pub chapters: Vec<Chapter>,
     pub meta: String,
+    pub links: HashMap<String, (usize, usize)>,
 }
 
 impl Epub {
@@ -26,8 +28,9 @@ impl Epub {
             container: zip::ZipArchive::new(file)?,
             chapters: Vec::new(),
             meta: String::new(),
+            links: HashMap::new(),
         };
-        let chapters = epub.get_rootfile()?;
+        let chapters = epub.get_spine()?;
         if !meta {
             epub.get_chapters(chapters);
         }
@@ -42,33 +45,31 @@ impl Epub {
             .unwrap();
         text
     }
-    fn get_chapters(&mut self, chapters: Vec<(String, String)>) {
-        self.chapters = chapters
-            .into_iter()
-            .filter_map(|(title, path)| {
-                let xml = self.get_text(&path);
-                // https://github.com/RazrFalcon/roxmltree/issues/12
-                // UnknownEntityReference for HTML entities
-                let doc = Document::parse(&xml).unwrap();
-                let body = doc.root_element().last_element_child().unwrap();
-                let state = Attributes::default();
-                let mut c = Chapter {
-                    title,
-                    text: String::new(),
-                    lines: Vec::new(),
-                    attrs: vec![(0, Attribute::Reset, state)],
-                    state,
-                };
-                render(body, &mut c);
-                if c.text.is_empty() {
-                    None
-                } else {
-                    Some(c)
-                }
-            })
-            .collect();
+    fn get_chapters(&mut self, spine: Vec<(String, String)>) {
+        for (title, path) in spine {
+            let xml = self.get_text(&path);
+            // https://github.com/RazrFalcon/roxmltree/issues/12
+            // UnknownEntityReference for HTML entities
+            let doc = Document::parse(&xml).unwrap();
+            let body = doc.root_element().last_element_child().unwrap();
+            let state = Attributes::default();
+            let mut c = Chapter {
+                title,
+                text: String::new(),
+                lines: Vec::new(),
+                attrs: vec![(0, Attribute::Reset, state)],
+                state,
+                links: Vec::new(),
+            };
+            render(body, &mut c);
+            if !c.text.is_empty() {
+                let key = path.rsplit('/').next().unwrap().to_string();
+                self.links.insert(key, (self.chapters.len(), 0));
+                self.chapters.push(c);
+            }
+        }
     }
-    fn get_rootfile(&mut self) -> Result<Vec<(String, String)>> {
+    fn get_spine(&mut self) -> Result<Vec<(String, String)>> {
         let xml = self.get_text("META-INF/container.xml");
         let doc = Document::parse(&xml)?;
         let path = doc
@@ -162,7 +163,18 @@ fn render(n: Node, c: &mut Chapter) {
     match n.tag_name().name() {
         "br" => c.text.push('\n'),
         "hr" => c.text.push_str("\n* * *\n"),
-        "a" => c.render(n, Attribute::Underlined, Attribute::NoUnderline),
+        "a" => {
+            if let Some(url) = n.attribute("href") {
+                let start = c.text.len();
+                c.render(n, Attribute::Underlined, Attribute::NoUnderline);
+                let url = url.split('#').next().unwrap().to_string();
+                c.links.push((
+                    start,
+                    c.text.len(),
+                    url,
+                ));
+            }
+        }
         "em" => c.render(n, Attribute::Italic, Attribute::NoItalic),
         "strong" => c.render(n, Attribute::Bold, Attribute::NoBold),
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {

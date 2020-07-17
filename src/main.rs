@@ -1,14 +1,14 @@
 use anyhow::Result;
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseEvent},
     queue,
     style::{Attribute, Print},
     terminal,
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    cmp::min,
+    cmp::{Ordering, min},
     collections::HashMap,
     env, fs,
     io::{stdout, Write},
@@ -87,14 +87,15 @@ enum Direction {
 }
 
 trait View {
-    fn run(&self, bk: &mut Bk, kc: KeyCode);
     fn render(&self, bk: &Bk) -> Vec<String>;
+    fn on_key(&self, bk: &mut Bk, kc: KeyCode);
+    fn on_mouse(&self, _: &mut Bk, _: MouseEvent) {}
 }
 
 // TODO render something useful?
 struct Mark;
 impl View for Mark {
-    fn run(&self, bk: &mut Bk, kc: KeyCode) {
+    fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         if let KeyCode::Char(c) = kc {
             bk.mark(c)
         }
@@ -107,9 +108,11 @@ impl View for Mark {
 
 struct Jump;
 impl View for Jump {
-    fn run(&self, bk: &mut Bk, kc: KeyCode) {
+    fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         if let KeyCode::Char(c) = kc {
-            bk.jump(c)
+            if let Some(&pos) = bk.mark.get(&c) {
+                bk.jump(pos);
+            }
         }
         bk.view = Some(&Page);
     }
@@ -120,7 +123,7 @@ impl View for Jump {
 
 struct Metadata;
 impl View for Metadata {
-    fn run(&self, bk: &mut Bk, _: KeyCode) {
+    fn on_key(&self, bk: &mut Bk, _: KeyCode) {
         bk.view = Some(&Page);
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
@@ -144,7 +147,7 @@ impl View for Metadata {
 
 struct Help;
 impl View for Help {
-    fn run(&self, bk: &mut Bk, _: KeyCode) {
+    fn on_key(&self, bk: &mut Bk, _: KeyCode) {
         bk.view = Some(&Page);
     }
     fn render(&self, _: &Bk) -> Vec<String> {
@@ -179,7 +182,7 @@ PageDown Right Space f l  Page Down
 
 struct Nav;
 impl View for Nav {
-    fn run(&self, bk: &mut Bk, kc: KeyCode) {
+    fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             KeyCode::Esc
             | KeyCode::Tab
@@ -244,7 +247,40 @@ impl View for Nav {
 
 struct Page;
 impl View for Page {
-    fn run(&self, bk: &mut Bk, kc: KeyCode) {
+    fn on_mouse(&self, bk: &mut Bk, e: MouseEvent) {
+        match e {
+            MouseEvent::Down(_, col, row, _) => {
+                if col < bk.pad() {
+                    return;
+                }
+                let c = bk.chap();
+                let (start, end) = c.lines[bk.line + row as usize];
+                // FIXME unicode width
+                let byte = start + (col - bk.pad()) as usize;
+                if byte > end {
+                    return;
+                }
+                let r = c.links.binary_search_by(|&(start, end, _)| {
+                    if start > byte {
+                        Ordering::Greater
+                    } else if end < byte {
+                        Ordering::Less
+                    } else {
+                        Ordering::Equal
+                    }
+                });
+                if let Ok(i) = r {
+                    let path = &c.links[i].2;
+                    let &pos = bk.links.get(path).unwrap();
+                    bk.jump(pos);
+                }
+            }
+            MouseEvent::ScrollDown(_, _, _) => bk.scroll_down(3),
+            MouseEvent::ScrollUp(_, _, _) => bk.scroll_up(3),
+            _ => (),
+        }
+    }
+    fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             KeyCode::Esc | KeyCode::Char('q') => bk.view = None,
             KeyCode::Tab => {
@@ -285,13 +321,13 @@ impl View for Page {
                 bk.scroll_up(bk.rows / 2);
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                bk.scroll_up(2);
+                bk.scroll_up(3);
             }
             KeyCode::Left | KeyCode::PageUp | KeyCode::Char('b') | KeyCode::Char('h') => {
                 bk.scroll_up(bk.rows);
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                bk.scroll_down(2);
+                bk.scroll_down(3);
             }
             KeyCode::Right
             | KeyCode::PageDown
@@ -396,7 +432,7 @@ impl View for Page {
 
 struct Search;
 impl View for Search {
-    fn run(&self, bk: &mut Bk, kc: KeyCode) {
+    fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             KeyCode::Esc => {
                 bk.jump_reset();
@@ -450,6 +486,7 @@ struct Bk<'a> {
     chapter: usize,
     line: usize,
     mark: HashMap<char, (usize, usize)>,
+    links: HashMap<String, (usize, usize)>,
     // terminal
     cols: u16,
     rows: usize,
@@ -507,6 +544,7 @@ impl Bk<'_> {
             chapter: args.chapter,
             line,
             mark,
+            links: epub.links,
             cols,
             rows: rows as usize,
             max_width: args.width,
@@ -517,26 +555,32 @@ impl Bk<'_> {
             query: String::new(),
         }
     }
+    fn pad(&self) -> u16 {
+        self.cols.saturating_sub(self.max_width) / 2
+    }
     fn run(&mut self) -> crossterm::Result<()> {
         let mut stdout = stdout();
-        queue!(stdout, terminal::EnterAlternateScreen, cursor::Hide)?;
+        queue!(
+            stdout,
+            terminal::EnterAlternateScreen,
+            cursor::Hide,
+            EnableMouseCapture
+        )?;
         terminal::enable_raw_mode()?;
 
         while let Some(view) = self.view {
-            let pad = self.cols.saturating_sub(self.max_width) / 2;
-
             queue!(
                 stdout,
                 terminal::Clear(terminal::ClearType::All),
                 Print(Attribute::Reset)
             )?;
             for (i, line) in view.render(self).iter().enumerate() {
-                queue!(stdout, cursor::MoveTo(pad, i as u16), Print(line))?;
+                queue!(stdout, cursor::MoveTo(self.pad(), i as u16), Print(line))?;
             }
             stdout.flush().unwrap();
 
             match event::read()? {
-                Event::Key(e) => view.run(self, e.code),
+                Event::Key(e) => view.on_key(self, e.code),
                 Event::Resize(cols, rows) => {
                     self.rows = rows as usize;
                     if cols != self.cols {
@@ -547,24 +591,25 @@ impl Bk<'_> {
                         }
                     }
                 }
-                // TODO
-                Event::Mouse(_) => (),
+                Event::Mouse(e) => view.on_mouse(self, e),
             }
         }
 
-        queue!(stdout, terminal::LeaveAlternateScreen, cursor::Show)?;
+        queue!(
+            stdout,
+            terminal::LeaveAlternateScreen,
+            cursor::Show,
+            DisableMouseCapture
+        )?;
         terminal::disable_raw_mode()
     }
     fn mark(&mut self, c: char) {
         self.mark.insert(c, (self.chapter, self.line));
     }
-    fn jump(&mut self, c: char) {
-        if let Some(&(c, l)) = self.mark.get(&c) {
-            let jump = (self.chapter, self.line);
-            self.chapter = c;
-            self.line = l;
-            self.mark.insert('\'', jump);
-        }
+    fn jump(&mut self, (c, l): (usize, usize)) {
+        self.mark('\'');
+        self.chapter = c;
+        self.line = l;
     }
     fn jump_reset(&mut self) {
         let &(c, l) = self.mark.get(&'\'').unwrap();
