@@ -262,20 +262,34 @@ impl View for Page {
                 }
                 let c = bk.chap();
                 let (start, end) = c.lines[bk.line + row as usize];
-                // FIXME unicode width
-                let byte = start + (col - bk.pad()) as usize;
-                if byte > end {
+                let line_col = (col - bk.pad()) as usize;
+
+                let mut cols = 0;
+                let mut found = false;
+                let mut byte = start;
+                for (i, c) in c.text[start..end].char_indices() {
+                    cols += c.width().unwrap();
+                    if cols > line_col {
+                        byte += i;
+                        found = true;
+                        break;
+                    }
+                }
+
+                if !found {
                     return;
                 }
+
                 let r = c.links.binary_search_by(|&(start, end, _)| {
                     if start > byte {
                         Ordering::Greater
-                    } else if end < byte {
+                    } else if end <= byte {
                         Ordering::Less
                     } else {
                         Ordering::Equal
                     }
                 });
+
                 if let Ok(i) = r {
                     let url = &c.links[i].2;
                     let &(chapter, byte) = bk.links.get(url).unwrap();
