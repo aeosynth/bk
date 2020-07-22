@@ -75,7 +75,7 @@ fn wrap(text: &str, max_cols: usize) -> Vec<(usize, usize)> {
     lines
 }
 
-fn get_line (lines: &Vec<(usize, usize)>, byte: usize) -> usize {
+fn get_line(lines: &Vec<(usize, usize)>, byte: usize) -> usize {
     match lines.binary_search_by_key(&byte, |&(a, _)| a) {
         Ok(n) => n,
         Err(n) => n - 1,
@@ -509,10 +509,9 @@ struct Bk<'a> {
     line: usize,
     mark: HashMap<char, (usize, usize)>,
     links: HashMap<String, (usize, usize)>,
-    // terminal
+    // layout
     cols: u16,
     rows: usize,
-    // user config
     max_width: u16,
     // view state
     view: Option<&'a dyn View>,
@@ -544,32 +543,26 @@ impl Bk<'_> {
             }
         }
 
-        let line = get_line(&chapters[args.chapter].lines, args.byte);
-
-        let mut mark = HashMap::new();
-        let view: &dyn View = if args.toc {
-            // need an initial mark to reset to
-            mark.insert('\'', (args.chapter, line));
-            &Nav
-        } else {
-            &Page
-        };
-
-        Bk {
+        let mut bk = Bk {
             chapters,
             chapter: args.chapter,
-            line,
-            mark,
+            line: 0,
+            mark: HashMap::new(),
             links: epub.links,
             cols,
             rows: rows as usize,
             max_width: args.width,
-            view: Some(view),
+            view: Some(if args.toc { &Nav } else { &Page }),
             dir: Direction::Next,
             meta,
             nav_top: 0,
             query: String::new(),
-        }
+        };
+
+        bk.line = get_line(&bk.chap().lines, args.byte);
+        bk.mark('\'');
+
+        bk
     }
     fn pad(&self) -> u16 {
         self.cols.saturating_sub(self.max_width) / 2
