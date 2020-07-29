@@ -650,7 +650,7 @@ impl Bk<'_> {
     fn scroll_up(&mut self, n: usize) {
         if self.line > 0 {
             self.line = self.line.saturating_sub(n);
-        } else {
+        } else if self.chapter > 0 {
             self.prev_chapter();
             self.line = self.chap().lines.len().saturating_sub(self.rows);
         }
