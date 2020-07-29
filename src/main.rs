@@ -336,28 +336,18 @@ impl View for Page {
                 bk.mark('\'');
                 bk.line = 0;
             }
-            KeyCode::Char('d') => {
-                bk.scroll_down(bk.rows / 2);
-            }
-            KeyCode::Char('u') => {
-                bk.scroll_up(bk.rows / 2);
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                bk.scroll_up(3);
-            }
+            KeyCode::Char('d') => bk.scroll_down(bk.rows / 2),
+            KeyCode::Char('u') => bk.scroll_up(bk.rows / 2),
+            KeyCode::Up | KeyCode::Char('k') => bk.scroll_up(3),
             KeyCode::Left | KeyCode::PageUp | KeyCode::Char('b') | KeyCode::Char('h') => {
                 bk.scroll_up(bk.rows);
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                bk.scroll_down(3);
-            }
+            KeyCode::Down | KeyCode::Char('j') => bk.scroll_down(3),
             KeyCode::Right
             | KeyCode::PageDown
             | KeyCode::Char('f')
             | KeyCode::Char('l')
-            | KeyCode::Char(' ') => {
-                bk.scroll_down(bk.rows);
-            }
+            | KeyCode::Char(' ') => bk.scroll_down(bk.rows),
             KeyCode::Char('[') => bk.prev_chapter(),
             KeyCode::Char(']') => bk.next_chapter(),
             _ => (),
@@ -651,7 +641,7 @@ impl Bk<'_> {
         if self.line > 0 {
             self.line = self.line.saturating_sub(n);
         } else if self.chapter > 0 {
-            self.prev_chapter();
+            self.chapter -= 1;
             self.line = self.chap().lines.len().saturating_sub(self.rows);
         }
     }
