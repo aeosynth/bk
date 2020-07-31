@@ -257,11 +257,13 @@ impl View for Page {
     fn on_mouse(&self, bk: &mut Bk, e: MouseEvent) {
         match e {
             MouseEvent::Down(_, col, row, _) => {
-                if col < bk.pad() {
+                let c = bk.chap();
+                let line = bk.line + row as usize;
+
+                if col < bk.pad() || line >= c.lines.len() {
                     return;
                 }
-                let c = bk.chap();
-                let (start, end) = c.lines[bk.line + row as usize];
+                let (start, end) = c.lines[line];
                 let line_col = (col - bk.pad()) as usize;
 
                 let mut cols = 0;
