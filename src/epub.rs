@@ -238,7 +238,14 @@ fn epub3(doc: Document, nav: &mut HashMap<String, String>) {
         .descendants()
         .filter(|n| n.has_tag_name("a"))
         .for_each(|n| {
-            let path = n.attribute("href").unwrap().to_string();
+            // TODO see if we can work w/o nav
+            let path = n
+                .attribute("href")
+                .unwrap()
+                .split('#')
+                .next()
+                .unwrap()
+                .to_string();
             let text = n
                 .descendants()
                 .filter(Node::is_text)
