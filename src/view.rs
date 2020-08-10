@@ -1,5 +1,8 @@
 use crossterm::{
-    event::{KeyCode, MouseEvent},
+    event::{
+        KeyCode::{self, *},
+        MouseEvent,
+    },
     style::Attribute,
 };
 use std::cmp::{min, Ordering};
@@ -17,7 +20,7 @@ pub trait View {
 struct Mark;
 impl View for Mark {
     fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
-        if let KeyCode::Char(c) = kc {
+        if let Char(c) = kc {
             bk.mark(c)
         }
         bk.view = Some(&Page)
@@ -30,7 +33,7 @@ impl View for Mark {
 struct Jump;
 impl View for Jump {
     fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
-        if let KeyCode::Char(c) = kc {
+        if let Char(c) = kc {
             if let Some(&pos) = bk.mark.get(&c) {
                 bk.jump(pos);
             }
@@ -140,25 +143,21 @@ impl View for Nav {
     }
     fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
-            KeyCode::Esc
-            | KeyCode::Tab
-            | KeyCode::Left
-            | KeyCode::Char('h')
-            | KeyCode::Char('q') => {
+            Esc | Tab | Left | Char('h') | Char('q') => {
                 bk.jump_reset();
                 bk.view = Some(&Page);
             }
-            KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
+            Enter | Right | Char('l') => {
                 bk.line = 0;
                 bk.view = Some(&Page);
             }
-            KeyCode::Down | KeyCode::Char('j') => self.scroll_down(bk),
-            KeyCode::Up | KeyCode::Char('k') => self.scroll_up(bk),
-            KeyCode::Home | KeyCode::Char('g') => {
+            Down | Char('j') => self.scroll_down(bk),
+            Up | Char('k') => self.scroll_up(bk),
+            Home | Char('g') => {
                 bk.chapter = 0;
                 bk.nav_top = 0;
             }
-            KeyCode::End | KeyCode::Char('G') => {
+            End | Char('G') => {
                 bk.chapter = bk.chapters.len() - 1;
                 bk.nav_top = bk.chapters.len().saturating_sub(bk.rows);
             }
@@ -241,52 +240,48 @@ impl View for Page {
     }
     fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
-            KeyCode::Esc | KeyCode::Char('q') => bk.view = None,
-            KeyCode::Tab => {
+            Esc | Char('q') => bk.view = None,
+            Tab => {
                 bk.nav_top = bk.chapter.saturating_sub(bk.rows - 1);
                 bk.mark('\'');
                 bk.view = Some(&Nav);
             }
-            KeyCode::F(_) => bk.view = Some(&Help),
-            KeyCode::Char('m') => bk.view = Some(&Mark),
-            KeyCode::Char('\'') => bk.view = Some(&Jump),
-            KeyCode::Char('i') => bk.view = Some(&Metadata),
-            KeyCode::Char('?') => bk.start_search(Direction::Prev),
-            KeyCode::Char('/') => bk.start_search(Direction::Next),
-            KeyCode::Char('N') => {
+            F(_) => bk.view = Some(&Help),
+            Char('m') => bk.view = Some(&Mark),
+            Char('\'') => bk.view = Some(&Jump),
+            Char('i') => bk.view = Some(&Metadata),
+            Char('?') => bk.start_search(Direction::Prev),
+            Char('/') => bk.start_search(Direction::Next),
+            Char('N') => {
                 bk.search(SearchArgs {
                     dir: Direction::Prev,
                     skip: true,
                 });
             }
-            KeyCode::Char('n') => {
+            Char('n') => {
                 bk.search(SearchArgs {
                     dir: Direction::Next,
                     skip: true,
                 });
             }
-            KeyCode::End | KeyCode::Char('G') => {
+            End | Char('G') => {
                 bk.mark('\'');
                 bk.line = bk.chap().lines.len().saturating_sub(bk.rows);
             }
-            KeyCode::Home | KeyCode::Char('g') => {
+            Home | Char('g') => {
                 bk.mark('\'');
                 bk.line = 0;
             }
-            KeyCode::Char('d') => bk.scroll_down(bk.rows / 2),
-            KeyCode::Char('u') => bk.scroll_up(bk.rows / 2),
-            KeyCode::Up | KeyCode::Char('k') => bk.scroll_up(3),
-            KeyCode::Left | KeyCode::PageUp | KeyCode::Char('b') | KeyCode::Char('h') => {
+            Char('d') => bk.scroll_down(bk.rows / 2),
+            Char('u') => bk.scroll_up(bk.rows / 2),
+            Up | Char('k') => bk.scroll_up(3),
+            Left | PageUp | Char('b') | Char('h') => {
                 bk.scroll_up(bk.rows);
             }
-            KeyCode::Down | KeyCode::Char('j') => bk.scroll_down(3),
-            KeyCode::Right
-            | KeyCode::PageDown
-            | KeyCode::Char('f')
-            | KeyCode::Char('l')
-            | KeyCode::Char(' ') => bk.scroll_down(bk.rows),
-            KeyCode::Char('[') => bk.prev_chapter(),
-            KeyCode::Char(']') => bk.next_chapter(),
+            Down | Char('j') => bk.scroll_down(3),
+            Right | PageDown | Char('f') | Char('l') | Char(' ') => bk.scroll_down(bk.rows),
+            Char('[') => bk.prev_chapter(),
+            Char(']') => bk.next_chapter(),
             _ => (),
         }
     }
@@ -383,14 +378,14 @@ pub struct Search;
 impl View for Search {
     fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
-            KeyCode::Esc => {
+            Esc => {
                 bk.jump_reset();
                 bk.view = Some(&Page);
             }
-            KeyCode::Enter => {
+            Enter => {
                 bk.view = Some(&Page);
             }
-            KeyCode::Backspace => {
+            Backspace => {
                 bk.query.pop();
                 bk.jump_reset();
                 bk.search(SearchArgs {
@@ -398,7 +393,7 @@ impl View for Search {
                     skip: false,
                 });
             }
-            KeyCode::Char(c) => {
+            Char(c) => {
                 bk.query.push(c);
                 let args = SearchArgs {
                     dir: bk.dir.clone(),
