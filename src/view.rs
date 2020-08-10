@@ -161,6 +161,22 @@ impl View for Nav {
                 bk.chapter = bk.chapters.len() - 1;
                 bk.nav_top = bk.chapters.len().saturating_sub(bk.rows);
             }
+            PageDown | Char('f') => {
+                bk.nav_top = min(bk.nav_top + bk.rows, bk.chapters.len() - 1);
+                bk.chapter = bk.nav_top;
+            }
+            PageUp | Char('b') => {
+                bk.nav_top = bk.nav_top.saturating_sub(bk.rows);
+                bk.chapter = bk.nav_top;
+            }
+            Char('d') => {
+                bk.nav_top = min(bk.nav_top + bk.rows / 2, bk.chapters.len() - 1);
+                bk.chapter = bk.nav_top;
+            }
+            Char('u') => {
+                bk.nav_top = bk.nav_top.saturating_sub(bk.rows / 2);
+                bk.chapter = bk.nav_top;
+            }
             _ => (),
         }
     }
