@@ -107,6 +107,11 @@ PageDown Right Space f l  Page Down
 pub struct Nav;
 
 impl Nav {
+    fn start(&self, bk: &mut Bk) {
+        bk.nav_top = bk.chapter.saturating_sub(bk.rows / 2);
+        bk.mark('\'');
+        bk.view = Some(&Self);
+    }
     fn scroll_up(&self, bk: &mut Bk) {
         if bk.chapter > 0 {
             if bk.chapter == bk.nav_top {
@@ -257,11 +262,7 @@ impl View for Page {
     fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             Esc | Char('q') => bk.view = None,
-            Tab => {
-                bk.nav_top = bk.chapter.saturating_sub(bk.rows - 1);
-                bk.mark('\'');
-                bk.view = Some(&Nav);
-            }
+            Tab => Nav.start(bk),
             F(_) => bk.view = Some(&Help),
             Char('m') => bk.view = Some(&Mark),
             Char('\'') => bk.view = Some(&Jump),
