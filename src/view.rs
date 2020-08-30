@@ -5,7 +5,7 @@ use crossterm::{
     },
     style::Attribute,
 };
-use std::cmp::{min, Ordering};
+use std::cmp::{max, min, Ordering};
 use unicode_width::UnicodeWidthChar;
 
 use crate::{get_line, Bk, Direction, SearchArgs};
@@ -105,14 +105,13 @@ PageDown Right Space f l  Page Down
 }
 
 pub struct Nav;
-
 impl Nav {
     fn start(&self, bk: &mut Bk) {
         bk.nav_top = bk.chapter.saturating_sub(bk.rows / 2);
         bk.mark('\'');
         bk.view = Some(&Self);
     }
-    fn scroll_up(&self, bk: &mut Bk) {
+    fn prev_chapter(&self, bk: &mut Bk) {
         if bk.chapter > 0 {
             if bk.chapter == bk.nav_top {
                 bk.nav_top -= 1;
@@ -120,13 +119,21 @@ impl Nav {
             bk.chapter -= 1;
         }
     }
-    fn scroll_down(&self, bk: &mut Bk) {
+    fn next_chapter(&self, bk: &mut Bk) {
         if bk.chapter < bk.chapters.len() - 1 {
             bk.chapter += 1;
             if bk.chapter == bk.nav_top + bk.rows {
                 bk.nav_top += 1;
             }
         }
+    }
+    fn scroll_down(&self, bk: &mut Bk, n: usize) {
+        bk.nav_top = min(bk.nav_top + n, bk.chapters.len() - 1);
+        bk.chapter = max(bk.chapter, bk.nav_top);
+    }
+    fn scroll_up(&self, bk: &mut Bk, n: usize) {
+        bk.nav_top = bk.nav_top.saturating_sub(n);
+        bk.chapter = min(bk.chapter, bk.nav_top + bk.rows - 1);
     }
     fn click(&self, bk: &mut Bk, row: usize) {
         if bk.nav_top + row < bk.chapters.len() {
@@ -141,8 +148,8 @@ impl View for Nav {
     fn on_mouse(&self, bk: &mut Bk, e: MouseEvent) {
         match e {
             MouseEvent::Down(_, _, row, _) => self.click(bk, row as usize),
-            MouseEvent::ScrollDown(_, _, _) => self.scroll_down(bk),
-            MouseEvent::ScrollUp(_, _, _) => self.scroll_up(bk),
+            MouseEvent::ScrollDown(_, _, _) => self.scroll_down(bk, 3),
+            MouseEvent::ScrollUp(_, _, _) => self.scroll_up(bk, 3),
             _ => (),
         }
     }
@@ -156,8 +163,8 @@ impl View for Nav {
                 bk.line = 0;
                 bk.view = Some(&Page);
             }
-            Down | Char('j') => self.scroll_down(bk),
-            Up | Char('k') => self.scroll_up(bk),
+            Down | Char('j') => self.next_chapter(bk),
+            Up | Char('k') => self.prev_chapter(bk),
             Home | Char('g') => {
                 bk.chapter = 0;
                 bk.nav_top = 0;
@@ -166,22 +173,10 @@ impl View for Nav {
                 bk.chapter = bk.chapters.len() - 1;
                 bk.nav_top = bk.chapters.len().saturating_sub(bk.rows);
             }
-            PageDown | Char('f') => {
-                bk.nav_top = min(bk.nav_top + bk.rows, bk.chapters.len() - 1);
-                bk.chapter = bk.nav_top;
-            }
-            PageUp | Char('b') => {
-                bk.nav_top = bk.nav_top.saturating_sub(bk.rows);
-                bk.chapter = bk.nav_top;
-            }
-            Char('d') => {
-                bk.nav_top = min(bk.nav_top + bk.rows / 2, bk.chapters.len() - 1);
-                bk.chapter = bk.nav_top;
-            }
-            Char('u') => {
-                bk.nav_top = bk.nav_top.saturating_sub(bk.rows / 2);
-                bk.chapter = bk.nav_top;
-            }
+            PageDown | Char('f') => self.scroll_down(bk, bk.rows),
+            PageUp | Char('b') => self.scroll_up(bk, bk.rows),
+            Char('d') => self.scroll_down(bk, bk.rows / 2),
+            Char('u') => self.scroll_up(bk, bk.rows / 2),
             _ => (),
         }
     }
