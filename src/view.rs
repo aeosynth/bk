@@ -244,7 +244,16 @@ impl View for Page {
 
                 if let Ok(i) = r {
                     let url = &c.links[i].2;
-                    let &(chapter, byte) = bk.links.get(url).unwrap();
+                    let mut link = bk.links.get(url);
+                    // FIXME hack
+                    if link.is_none() {
+                        let url = url.split('#').next().unwrap();
+                        link = bk.links.get(url);
+                        if link.is_none() {
+                            return
+                        }
+                    }
+                    let &(chapter, byte) = link.unwrap();
                     let line = get_line(&bk.chapters[chapter].lines, byte);
                     bk.jump((chapter, line));
                 }

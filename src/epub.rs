@@ -17,9 +17,10 @@ pub struct Chapter {
 
 pub struct Epub {
     container: zip::ZipArchive<File>,
+    rootdir: String,
     pub chapters: Vec<Chapter>,
-    pub meta: String,
     pub links: HashMap<String, (usize, usize)>,
+    pub meta: String,
 }
 
 impl Epub {
@@ -27,9 +28,10 @@ impl Epub {
         let file = File::open(path)?;
         let mut epub = Epub {
             container: zip::ZipArchive::new(file)?,
+            rootdir: String::new(),
             chapters: Vec::new(),
-            meta: String::new(),
             links: HashMap::new(),
+            meta: String::new(),
         };
         let chapters = epub.get_spine()?;
         if !meta {
@@ -48,7 +50,7 @@ impl Epub {
     }
     fn get_chapters(&mut self, spine: Vec<(String, String)>) {
         for (title, path) in spine {
-            let xml = self.get_text(&path);
+            let xml = self.get_text(&format!("{}{}", self.rootdir, path));
             // https://github.com/RazrFalcon/roxmltree/issues/12
             // UnknownEntityReference for HTML entities
             let doc = Document::parse(&xml).unwrap();
@@ -64,9 +66,7 @@ impl Epub {
                 frag: Vec::new(),
             };
             render(body, &mut c);
-            if c.text.is_empty() {
-                continue;
-            }
+            self.links.insert(path.to_string(), (self.chapters.len(), 0));
             for (id, pos) in c.frag.drain(..) {
                 let name = path.rsplit('/').next().unwrap();
                 let url = format!("{}#{}", name, id);
@@ -88,10 +88,10 @@ impl Epub {
         let doc = Document::parse(&xml)?;
 
         // zip expects unix path even on windows
-        let rootdir = match path.rfind('/') {
+        self.rootdir = match path.rfind('/') {
             Some(n) => &path[..=n],
             None => "",
-        };
+        }.to_string();
         let mut manifest = HashMap::new();
         let mut nav = HashMap::new();
         let mut children = doc.root_element().children().filter(Node::is_element);
@@ -120,13 +120,13 @@ impl Epub {
                 .unwrap()
                 .attribute("href")
                 .unwrap();
-            let xml = self.get_text(&format!("{}{}", rootdir, path));
+            let xml = self.get_text(&format!("{}{}", self.rootdir, path));
             let doc = Document::parse(&xml)?;
             epub3(doc, &mut nav);
         } else {
             let id = spine_node.attribute("toc").unwrap_or("ncx");
             let path = manifest.get(id).unwrap();
-            let xml = self.get_text(&format!("{}{}", rootdir, path));
+            let xml = self.get_text(&format!("{}{}", self.rootdir, path));
             let doc = Document::parse(&xml)?;
             epub2(doc, &mut nav);
         }
@@ -138,8 +138,7 @@ impl Epub {
                 let id = n.attribute("idref").unwrap();
                 let path = manifest.remove(id).unwrap();
                 let label = nav.remove(path).unwrap_or_else(|| i.to_string());
-                let path = format!("{}{}", rootdir, path);
-                (label, path)
+                (label, path.to_string())
             })
             .collect())
     }
@@ -169,6 +168,7 @@ fn render(n: Node, c: &mut Chapter) {
     match n.tag_name().name() {
         "br" => c.text.push('\n'),
         "hr" => c.text.push_str("\n* * *\n"),
+        "img" => c.text.push_str("\n[IMG]\n"),
         "a" => {
             if let Some(url) = n.attribute("href") {
                 let start = c.text.len();
@@ -220,6 +220,9 @@ fn epub2(doc: Document, nav: &mut HashMap<String, String>) {
                 .unwrap()
                 .attribute("src")
                 .unwrap()
+                .split('#')
+                .next()
+                .unwrap()
                 .to_string();
             let text = n
                 .descendants()
@@ -235,10 +238,12 @@ fn epub3(doc: Document, nav: &mut HashMap<String, String>) {
     doc.descendants()
         .find(|n| n.has_tag_name("nav"))
         .unwrap()
+        .children()
+        .find(|n| n.has_tag_name("ol"))
+        .unwrap()
         .descendants()
         .filter(|n| n.has_tag_name("a"))
         .for_each(|n| {
-            // TODO see if we can work w/o nav
             let path = n
                 .attribute("href")
                 .unwrap()
