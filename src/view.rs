@@ -250,7 +250,7 @@ impl View for Page {
                         let url = url.split('#').next().unwrap();
                         link = bk.links.get(url);
                         if link.is_none() {
-                            return
+                            return;
                         }
                     }
                     let &(chapter, byte) = link.unwrap();

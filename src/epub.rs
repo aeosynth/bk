@@ -66,7 +66,11 @@ impl Epub {
                 frag: Vec::new(),
             };
             render(body, &mut c);
-            self.links.insert(path.to_string(), (self.chapters.len(), 0));
+            if c.text.is_empty() {
+                continue;
+            }
+            self.links
+                .insert(path.to_string(), (self.chapters.len(), 0));
             for (id, pos) in c.frag.drain(..) {
                 let name = path.rsplit('/').next().unwrap();
                 let url = format!("{}#{}", name, id);
@@ -91,7 +95,8 @@ impl Epub {
         self.rootdir = match path.rfind('/') {
             Some(n) => &path[..=n],
             None => "",
-        }.to_string();
+        }
+        .to_string();
         let mut manifest = HashMap::new();
         let mut nav = HashMap::new();
         let mut children = doc.root_element().children().filter(Node::is_element);
