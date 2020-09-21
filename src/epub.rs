@@ -66,7 +66,7 @@ impl Epub {
                 frag: Vec::new(),
             };
             render(body, &mut c);
-            if c.text.is_empty() {
+            if c.text.trim().is_empty() {
                 continue;
             }
             let relative = path.rsplit('/').next().unwrap();
@@ -164,8 +164,14 @@ impl Chapter {
 fn render(n: Node, c: &mut Chapter) {
     if n.is_text() {
         let text = n.text().unwrap();
-        if !text.trim().is_empty() {
-            c.text.push_str(text);
+        let content: Vec<_> = text.split_ascii_whitespace().collect();
+
+        if text.starts_with(char::is_whitespace) {
+            c.text.push(' ');
+        }
+        c.text.push_str(&content.join(" "));
+        if text.ends_with(char::is_whitespace) {
+            c.text.push(' ');
         }
         return;
     }
