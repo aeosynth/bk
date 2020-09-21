@@ -69,11 +69,11 @@ impl Epub {
             if c.text.is_empty() {
                 continue;
             }
+            let relative = path.rsplit('/').next().unwrap();
             self.links
-                .insert(path.to_string(), (self.chapters.len(), 0));
+                .insert(relative.to_string(), (self.chapters.len(), 0));
             for (id, pos) in c.frag.drain(..) {
-                let name = path.rsplit('/').next().unwrap();
-                let url = format!("{}#{}", name, id);
+                let url = format!("{}#{}", relative, id);
                 self.links.insert(url, (self.chapters.len(), pos));
             }
             self.chapters.push(c);
