@@ -76,6 +76,11 @@ impl Epub {
                 let url = format!("{}#{}", relative, id);
                 self.links.insert(url, (self.chapters.len(), pos));
             }
+            for link in c.links.iter_mut() {
+                if link.2.starts_with('#') {
+                    link.2.insert_str(0, relative);
+                }
+            }
             self.chapters.push(c);
         }
     }

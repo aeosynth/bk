@@ -244,7 +244,7 @@ impl View for Page {
 
                 if let Ok(i) = r {
                     let url = &c.links[i].2;
-                    let &(chapter, byte) = bk.links.get(url).expect(url);
+                    let &(chapter, byte) = bk.links.get(url).unwrap();
                     let line = get_line(&bk.chapters[chapter].lines, byte);
                     bk.jump((chapter, line));
                 }
