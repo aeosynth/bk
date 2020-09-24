@@ -153,11 +153,14 @@ impl Chapter {
     fn render(&mut self, n: Node, open: Attribute, close: Attribute) {
         self.state.set(open);
         self.attrs.push((self.text.len(), open, self.state));
+        self.render_text(n);
+        self.state.unset(open);
+        self.attrs.push((self.text.len(), close, self.state));
+    }
+    fn render_text(&mut self, n: Node) {
         for child in n.children() {
             render(child, self);
         }
-        self.state.unset(open);
-        self.attrs.push((self.text.len(), close, self.state));
     }
 }
 
@@ -186,9 +189,14 @@ fn render(n: Node, c: &mut Chapter) {
         "img" => c.text.push_str("\n[IMG]\n"),
         "a" => {
             if let Some(url) = n.attribute("href") {
-                let start = c.text.len();
-                c.render(n, Attribute::Underlined, Attribute::NoUnderline);
-                c.links.push((start, c.text.len(), url.to_string()));
+                if url.starts_with("http") {
+                    // TODO open in browser
+                    c.render_text(n)
+                } else {
+                    let start = c.text.len();
+                    c.render(n, Attribute::Underlined, Attribute::NoUnderline);
+                    c.links.push((start, c.text.len(), url.to_string()));
+                }
             }
         }
         "em" => c.render(n, Attribute::Italic, Attribute::NoItalic),
@@ -200,23 +208,15 @@ fn render(n: Node, c: &mut Chapter) {
         }
         "blockquote" | "p" | "tr" => {
             c.text.push('\n');
-            for child in n.children() {
-                render(child, c);
-            }
+            c.render_text(n);
             c.text.push('\n');
         }
         "li" => {
             c.text.push_str("\n- ");
-            for child in n.children() {
-                render(child, c);
-            }
+            c.render_text(n);
             c.text.push('\n');
         }
-        _ => {
-            for child in n.children() {
-                render(child, c);
-            }
-        }
+        _ => c.render_text(n),
     }
 }
 
