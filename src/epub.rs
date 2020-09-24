@@ -211,6 +211,11 @@ fn render(n: Node, c: &mut Chapter) {
             c.render_text(n);
             c.text.push('\n');
         }
+        "div" => {
+            // FIXME better whitespace management
+            c.text.push('\n');
+            c.render_text(n);
+        }
         "li" => {
             c.text.push_str("\n- ");
             c.render_text(n);
