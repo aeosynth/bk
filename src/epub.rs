@@ -176,6 +176,10 @@ fn render(n: Node, c: &mut Chapter) {
         return;
     }
 
+    if let Some(id) = n.attribute("id") {
+        c.frag.push((id.to_string(), c.text.len()));
+    }
+
     match n.tag_name().name() {
         "br" => c.text.push('\n'),
         "hr" => c.text.push_str("\n* * *\n"),
@@ -185,8 +189,6 @@ fn render(n: Node, c: &mut Chapter) {
                 let start = c.text.len();
                 c.render(n, Attribute::Underlined, Attribute::NoUnderline);
                 c.links.push((start, c.text.len(), url.to_string()));
-            } else if let Some(id) = n.attribute("id") {
-                c.frag.push((id.to_string(), c.text.len()));
             }
         }
         "em" => c.render(n, Attribute::Italic, Attribute::NoItalic),
