@@ -51,7 +51,7 @@ Check if your terminal supports italics:
 | images | ❌ | ✔️ |
 | themes | ❌ | ✔️ |
 | choose file from history | ❌ | ✔️ |
-| additional formats | ❌ | FictionBook |
+| additional formats | ❌ | FictionBook, Mobi, AZW3 |
 | external integration | see 1 | dictionary |
 
 1: you can use the `--meta` switch to use `bk` as a file previewer with eg [nnn](https://github.com/jarun/nnn/)
