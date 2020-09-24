@@ -8,7 +8,6 @@ bk is a WIP terminal EPUB reader, written in Rust.
 - Vim bindings
 - Incremental search
 - Bookmarks
-- Inline styles (bold/italic)
 
 # Install
 Install from crates.io:
@@ -48,7 +47,7 @@ Check if your terminal supports italics:
 | incremental search | ✔️ | ❌ |
 | multi line search | ✔️ | ❌ |
 | regex search | ❌ | ✔️ |
-| links | ❌ | ❌ |
+| links | ✔️ | ❌ |
 | images | ❌ | ✔️ |
 | themes | ❌ | ✔️ |
 | choose file from history | ❌ | ✔️ |
