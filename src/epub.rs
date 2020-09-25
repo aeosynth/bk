@@ -211,15 +211,11 @@ fn render(n: Node, c: &mut Chapter) {
             c.render(n, Attribute::Bold, Attribute::NoBold);
             c.text.push('\n');
         }
-        "blockquote" | "p" | "tr" => {
+        "blockquote" | "div" | "p" | "tr" => {
+            // TODO compress newlines
             c.text.push('\n');
             c.render_text(n);
             c.text.push('\n');
-        }
-        "div" => {
-            // FIXME better whitespace management
-            c.text.push('\n');
-            c.render_text(n);
         }
         "li" => {
             c.text.push_str("\n- ");
