@@ -43,6 +43,7 @@ Check if your terminal supports italics:
 |   | bk | epr/epy |
 | - | - | - |
 | runtime deps | ❌ | python, curses |
+| wide characters | ✔️ | ❌ |
 | inline styles | ✔️ | ❌ |
 | incremental search | ✔️ | ❌ |
 | multi line search | ✔️ | ❌ |
