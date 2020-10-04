@@ -193,15 +193,14 @@ fn render(n: Node, c: &mut Chapter) {
         "hr" => c.text.push_str("\n* * *\n"),
         "img" => c.text.push_str("\n[IMG]\n"),
         "a" => {
-            if let Some(url) = n.attribute("href") {
-                if url.starts_with("http") {
-                    // TODO open in browser
-                    c.render_text(n)
-                } else {
+            match n.attribute("href") {
+                // TODO open external urls in browser
+                Some(url) if !url.starts_with("http") => {
                     let start = c.text.len();
                     c.render(n, Attribute::Underlined, Attribute::NoUnderline);
                     c.links.push((start, c.text.len(), url.to_string()));
                 }
+                _ => c.render_text(n)
             }
         }
         "em" => c.render(n, Attribute::Italic, Attribute::NoItalic),
