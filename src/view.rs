@@ -5,7 +5,7 @@ use crossterm::{
     },
     style::Attribute,
 };
-use std::cmp::{max, min, Ordering};
+use std::cmp::{min, Ordering};
 use unicode_width::UnicodeWidthChar;
 
 use crate::{get_line, Bk, Direction, SearchArgs};
@@ -106,50 +106,32 @@ PageDown Right Space f l  Page Down
 
 pub struct Nav;
 impl Nav {
-    fn start(&self, bk: &mut Bk) {
-        bk.nav_top = bk.chapter.saturating_sub(bk.rows / 2);
-        bk.mark('\'');
-        bk.view = Some(&Self);
+    fn prev(&self, bk: &mut Bk, n: usize) {
+        bk.chapter = bk.chapter.saturating_sub(n);
+        self.cursor(bk);
     }
-    fn prev_chapter(&self, bk: &mut Bk) {
-        if bk.chapter > 0 {
-            if bk.chapter == bk.nav_top {
-                bk.nav_top -= 1;
-            }
-            bk.chapter -= 1;
-        }
+    fn next(&self, bk: &mut Bk, n: usize) {
+        bk.chapter = min(bk.chapters.len() - 1, bk.chapter + n);
+        self.cursor(bk);
     }
-    fn next_chapter(&self, bk: &mut Bk) {
-        if bk.chapter < bk.chapters.len() - 1 {
-            bk.chapter += 1;
-            if bk.chapter == bk.nav_top + bk.rows {
-                bk.nav_top += 1;
-            }
-        }
-    }
-    fn scroll_down(&self, bk: &mut Bk, n: usize) {
-        bk.nav_top = min(bk.nav_top + n, bk.chapters.len() - 1);
-        bk.chapter = max(bk.chapter, bk.nav_top);
-    }
-    fn scroll_up(&self, bk: &mut Bk, n: usize) {
-        bk.nav_top = bk.nav_top.saturating_sub(n);
-        bk.chapter = min(bk.chapter, bk.nav_top + bk.rows - 1);
+    fn cursor(&self, bk: &mut Bk) {
+        bk.cursor = min(bk.rows / 2, bk.chapter);
     }
     fn click(&self, bk: &mut Bk, row: usize) {
-        if bk.nav_top + row < bk.chapters.len() {
-            bk.chapter = bk.nav_top + row;
+        let start = bk.chapter - bk.cursor;
+        if start + row < bk.chapters.len() {
+            bk.chapter = start + row;
             bk.line = 0;
             bk.view = Some(&Page);
         }
     }
 }
-
 impl View for Nav {
     fn on_mouse(&self, bk: &mut Bk, e: MouseEvent) {
         match e {
             MouseEvent::Down(_, _, row, _) => self.click(bk, row as usize),
-            MouseEvent::ScrollDown(_, _, _) => self.scroll_down(bk, 3),
-            MouseEvent::ScrollUp(_, _, _) => self.scroll_up(bk, 3),
+            MouseEvent::ScrollDown(_, _, _) => self.next(bk, 3),
+            MouseEvent::ScrollUp(_, _, _) => self.prev(bk, 3),
             _ => (),
         }
     }
@@ -163,42 +145,32 @@ impl View for Nav {
                 bk.line = 0;
                 bk.view = Some(&Page);
             }
-            Down | Char('j') => self.next_chapter(bk),
-            Up | Char('k') => self.prev_chapter(bk),
-            Home | Char('g') => {
-                bk.chapter = 0;
-                bk.nav_top = 0;
-            }
-            End | Char('G') => {
-                bk.chapter = bk.chapters.len() - 1;
-                bk.nav_top = bk.chapters.len().saturating_sub(bk.rows);
-            }
-            PageDown | Char('f') => self.scroll_down(bk, bk.rows),
-            PageUp | Char('b') => self.scroll_up(bk, bk.rows),
-            Char('d') => self.scroll_down(bk, bk.rows / 2),
-            Char('u') => self.scroll_up(bk, bk.rows / 2),
+            Down | Char('j') => self.next(bk, 1),
+            Up | Char('k') => self.prev(bk, 1),
+            Home | Char('g') => self.prev(bk, bk.chapters.len()),
+            End | Char('G') => self.next(bk, bk.chapters.len()),
+            PageDown | Char('f') => self.next(bk, bk.rows),
+            PageUp | Char('b') => self.prev(bk, bk.rows),
+            Char('d') => self.next(bk, bk.rows / 2),
+            Char('u') => self.prev(bk, bk.rows / 2),
             _ => (),
         }
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
-        let end = min(bk.nav_top + bk.rows, bk.chapters.len());
+        let start = bk.chapter - bk.cursor;
+        let end = min(bk.chapters.len(), start + bk.rows);
 
-        bk.chapters[bk.nav_top..end]
+        let mut arr = bk.chapters[start..end]
             .iter()
-            .enumerate()
-            .map(|(i, chapter)| {
-                if bk.chapter == bk.nav_top + i {
-                    format!(
-                        "{}{}{}",
-                        Attribute::Reverse,
-                        chapter.title,
-                        Attribute::Reset
-                    )
-                } else {
-                    chapter.title.to_string()
-                }
-            })
-            .collect()
+            .map(|c| c.title.clone())
+            .collect::<Vec<String>>();
+        arr[bk.cursor] = format!(
+            "{}{}{}",
+            Attribute::Reverse,
+            arr[bk.cursor],
+            Attribute::Reset
+        );
+        arr
     }
 }
 
@@ -257,7 +229,11 @@ impl View for Page {
     fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             Esc | Char('q') => bk.view = None,
-            Tab => Nav.start(bk),
+            Tab => {
+                bk.mark('\'');
+                Nav.cursor(bk);
+                bk.view = Some(&Nav);
+            }
             F(_) => bk.view = Some(&Help),
             Char('m') => bk.view = Some(&Mark),
             Char('\'') => bk.view = Some(&Jump),

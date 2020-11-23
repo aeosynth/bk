@@ -200,7 +200,7 @@ fn render(n: Node, c: &mut Chapter) {
                     c.render(n, Attribute::Underlined, Attribute::NoUnderline);
                     c.links.push((start, c.text.len(), url.to_string()));
                 }
-                _ => c.render_text(n)
+                _ => c.render_text(n),
             }
         }
         "em" => c.render(n, Attribute::Italic, Attribute::NoItalic),

@@ -109,9 +109,9 @@ pub struct Bk<'a> {
     max_width: u16,
     // view state
     view: Option<&'a dyn View>,
+    cursor: usize,
     dir: Direction,
     meta: Vec<String>,
-    nav_top: usize,
     query: String,
 }
 
@@ -147,9 +147,9 @@ impl Bk<'_> {
             rows: rows as usize,
             max_width: args.width,
             view: Some(if args.toc { &Nav } else { &Page }),
+            cursor: 0,
             dir: Direction::Next,
             meta,
-            nav_top: 0,
             query: String::new(),
         };
 
@@ -180,6 +180,7 @@ impl Bk<'_> {
             for (i, line) in view.render(self).iter().enumerate() {
                 queue!(stdout, cursor::MoveTo(self.pad(), i as u16), Print(line))?;
             }
+            queue!(stdout, cursor::MoveTo(self.pad(), self.cursor as u16))?;
             stdout.flush().unwrap();
 
             match event::read()? {
