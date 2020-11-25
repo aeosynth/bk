@@ -185,6 +185,7 @@ impl Bk<'_> {
 
             match event::read()? {
                 Event::Key(e) => view.on_key(self, e.code),
+                Event::Mouse(e) => view.on_mouse(self, e),
                 Event::Resize(cols, rows) => {
                     self.rows = rows as usize;
                     if cols != self.cols {
@@ -194,8 +195,8 @@ impl Bk<'_> {
                             c.lines = wrap(&c.text, width);
                         }
                     }
+                    view.on_resize(self);
                 }
-                Event::Mouse(e) => view.on_mouse(self, e),
             }
         }
 

@@ -14,6 +14,7 @@ pub trait View {
     fn render(&self, bk: &Bk) -> Vec<String>;
     fn on_key(&self, bk: &mut Bk, kc: KeyCode);
     fn on_mouse(&self, _: &mut Bk, _: MouseEvent) {}
+    fn on_resize(&self, _: &mut Bk) {}
 }
 
 // TODO render something useful?
@@ -127,6 +128,9 @@ impl Nav {
     }
 }
 impl View for Nav {
+    fn on_resize(&self, bk: &mut Bk) {
+        self.cursor(bk);
+    }
     fn on_mouse(&self, bk: &mut Bk, e: MouseEvent) {
         match e {
             MouseEvent::Down(_, _, row, _) => self.click(bk, row as usize),
@@ -272,6 +276,10 @@ impl View for Page {
             Char(']') => bk.next_chapter(),
             _ => (),
         }
+    }
+    fn on_resize(&self, bk: &mut Bk) {
+        // lazy
+        bk.line = min(bk.line, bk.chap().lines.len() - 1);
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
         let c = bk.chap();
