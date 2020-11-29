@@ -196,6 +196,7 @@ impl Bk<'_> {
                         }
                     }
                     view.on_resize(self);
+                    // XXX marks aren't updated
                 }
             }
         }

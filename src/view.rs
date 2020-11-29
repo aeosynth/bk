@@ -143,9 +143,11 @@ impl View for Nav {
         match kc {
             Esc | Tab | Left | Char('h') | Char('q') => {
                 bk.jump_reset();
+                bk.cursor = 0;
                 bk.view = Some(&Page);
             }
             Enter | Right | Char('l') => {
+                bk.cursor = 0;
                 bk.line = 0;
                 bk.view = Some(&Page);
             }
