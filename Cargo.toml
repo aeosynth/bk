@@ -13,9 +13,9 @@ repository = "https://github.com/aeosynth/bk"
 [dependencies]
 anyhow = "1"
 argh = "0"
-crossterm = "0"
+crossterm = "0.18.2"
 ron = "0"
-roxmltree = "0"
+roxmltree = "0.13.0"
 serde = "1"
 unicode-width = "0"
 
