@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossterm::style::{Attribute, Attributes};
-use roxmltree::{Document, Node};
+use roxmltree::{Document, Node, ParsingOptions};
 use std::{collections::HashMap, fs::File, io::Read};
 
 pub struct Chapter {
@@ -51,9 +51,11 @@ impl Epub {
     fn get_chapters(&mut self, spine: Vec<(String, String)>) {
         for (title, path) in spine {
             let xml = self.get_text(&format!("{}{}", self.rootdir, path));
+            let opt = ParsingOptions { allow_dtd: true };
             // https://github.com/RazrFalcon/roxmltree/issues/12
             // UnknownEntityReference for HTML entities
-            let doc = Document::parse(&xml).unwrap();
+            let doc = Document::parse_with_options(&xml, opt)
+                .unwrap_or_else(|_| panic!("Could not parse path: {}", &path));
             let body = doc.root_element().last_element_child().unwrap();
             let state = Attributes::default();
             let mut c = Chapter {
