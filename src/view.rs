@@ -2,6 +2,7 @@ use crossterm::{
     event::{
         KeyCode::{self, *},
         MouseEvent,
+        MouseEventKind,
     },
     style::Attribute,
 };
@@ -132,10 +133,10 @@ impl View for Nav {
         self.cursor(bk);
     }
     fn on_mouse(&self, bk: &mut Bk, e: MouseEvent) {
-        match e {
-            MouseEvent::Down(_, _, row, _) => self.click(bk, row as usize),
-            MouseEvent::ScrollDown(_, _, _) => self.next(bk, 3),
-            MouseEvent::ScrollUp(_, _, _) => self.prev(bk, 3),
+        match e.kind {
+            MouseEventKind::Down(_) => self.click(bk, e.row as usize),
+            MouseEventKind::ScrollDown => self.next(bk, 3),
+            MouseEventKind::ScrollUp => self.prev(bk, 3),
             _ => (),
         }
     }
@@ -183,16 +184,16 @@ impl View for Nav {
 pub struct Page;
 impl View for Page {
     fn on_mouse(&self, bk: &mut Bk, e: MouseEvent) {
-        match e {
-            MouseEvent::Down(_, col, row, _) => {
+        match e.kind {
+            MouseEventKind::Down(_) => {
                 let c = bk.chap();
-                let line = bk.line + row as usize;
+                let line = bk.line + e.row as usize;
 
-                if col < bk.pad() || line >= c.lines.len() {
+                if e.column < bk.pad() || line >= c.lines.len() {
                     return;
                 }
                 let (start, end) = c.lines[line];
-                let line_col = (col - bk.pad()) as usize;
+                let line_col = (e.column - bk.pad()) as usize;
 
                 let mut cols = 0;
                 let mut found = false;
@@ -227,8 +228,8 @@ impl View for Page {
                     bk.jump((chapter, line));
                 }
             }
-            MouseEvent::ScrollDown(_, _, _) => bk.scroll_down(3),
-            MouseEvent::ScrollUp(_, _, _) => bk.scroll_up(3),
+            MouseEventKind::ScrollDown => bk.scroll_down(3),
+            MouseEventKind::ScrollUp => bk.scroll_up(3),
             _ => (),
         }
     }

@@ -86,7 +86,7 @@ impl Epub {
     }
     fn get_spine(&mut self) -> Result<Vec<(String, String)>> {
         let xml = self.get_text("META-INF/container.xml");
-        let doc = Document::parse(&xml)?;
+        let doc = Document::parse(&xml).unwrap();
         let path = doc
             .descendants()
             .find(|n| n.has_tag_name("rootfile"))
@@ -94,7 +94,7 @@ impl Epub {
             .attribute("full-path")
             .unwrap();
         let xml = self.get_text(path);
-        let doc = Document::parse(&xml)?;
+        let doc = Document::parse(&xml).unwrap();
 
         // zip expects unix path even on windows
         self.rootdir = match path.rfind('/') {
@@ -131,13 +131,13 @@ impl Epub {
                 .attribute("href")
                 .unwrap();
             let xml = self.get_text(&format!("{}{}", self.rootdir, path));
-            let doc = Document::parse(&xml)?;
+            let doc = Document::parse(&xml).unwrap();
             epub3(doc, &mut nav);
         } else {
             let id = spine_node.attribute("toc").unwrap_or("ncx");
             let path = manifest.get(id).unwrap();
             let xml = self.get_text(&format!("{}{}", self.rootdir, path));
-            let doc = Document::parse(&xml)?;
+            let doc = Document::parse(&xml).unwrap();
             epub2(doc, &mut nav);
         }
         Ok(spine_node
