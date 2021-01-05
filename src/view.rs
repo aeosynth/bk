@@ -106,8 +106,8 @@ PageDown Right Space f l  Page Down
     }
 }
 
-pub struct Nav;
-impl Nav {
+pub struct Toc;
+impl Toc {
     fn prev(&self, bk: &mut Bk, n: usize) {
         bk.chapter = bk.chapter.saturating_sub(n);
         self.cursor(bk);
@@ -128,7 +128,7 @@ impl Nav {
         }
     }
 }
-impl View for Nav {
+impl View for Toc {
     fn on_resize(&self, bk: &mut Bk) {
         self.cursor(bk);
     }
@@ -238,8 +238,8 @@ impl View for Page {
             Esc | Char('q') => bk.view = None,
             Tab => {
                 bk.mark('\'');
-                Nav.cursor(bk);
-                bk.view = Some(&Nav);
+                Toc.cursor(bk);
+                bk.view = Some(&Toc);
             }
             F(_) => bk.view = Some(&Help),
             Char('m') => bk.view = Some(&Mark),

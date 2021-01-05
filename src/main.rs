@@ -18,7 +18,7 @@ use std::{
 use unicode_width::UnicodeWidthChar;
 
 mod view;
-use view::{Nav, Page, Search, View};
+use view::{Toc, Page, Search, View};
 
 mod epub;
 use epub::Chapter;
@@ -146,7 +146,7 @@ impl Bk<'_> {
             cols,
             rows: rows as usize,
             max_width: args.width,
-            view: Some(if args.toc { &Nav } else { &Page }),
+            view: Some(if args.toc { &Toc } else { &Page }),
             cursor: 0,
             dir: Direction::Next,
             meta,
