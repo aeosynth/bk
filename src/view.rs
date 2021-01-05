@@ -58,8 +58,9 @@ impl View for Metadata {
         let total = lines.iter().sum::<usize>();
         let progress = current as f32 / total as f32 * 100.0;
 
-        let pages = lines[bk.chapter] / bk.rows;
-        let page = bk.line / bk.rows;
+        let pages = (lines[bk.chapter] as f32 / bk.rows as f32).ceil() as usize;
+        // if the last line is visible we're on the last page. first page is the short one
+        let page = pages - (lines[bk.chapter] - 1 - bk.line) / bk.rows;
 
         let mut vec = vec![
             format!("chapter: {}/{}", page, pages),
