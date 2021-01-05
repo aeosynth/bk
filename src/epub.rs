@@ -250,7 +250,8 @@ fn epub2(doc: Document, nav: &mut HashMap<String, String>) {
                 .text()
                 .unwrap()
                 .to_string();
-            nav.insert(path, text);
+            // TODO subsections
+            nav.entry(path).or_insert(text);
         });
 }
 fn epub3(doc: Document, nav: &mut HashMap<String, String>) {
