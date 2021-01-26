@@ -1,8 +1,7 @@
 use crossterm::{
     event::{
         KeyCode::{self, *},
-        MouseEvent,
-        MouseEventKind,
+        MouseEvent, MouseEventKind,
     },
     style::Attribute,
 };
@@ -25,7 +24,7 @@ impl View for Mark {
         if let Char(c) = kc {
             bk.mark(c)
         }
-        bk.view = Some(&Page)
+        bk.view = &Page
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
         Page::render(&Page, bk)
@@ -40,7 +39,7 @@ impl View for Jump {
                 bk.jump(pos);
             }
         }
-        bk.view = Some(&Page);
+        bk.view = &Page;
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
         Page::render(&Page, bk)
@@ -50,7 +49,7 @@ impl View for Jump {
 struct Metadata;
 impl View for Metadata {
     fn on_key(&self, bk: &mut Bk, _: KeyCode) {
-        bk.view = Some(&Page);
+        bk.view = &Page;
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
         let lines: Vec<usize> = bk.chapters.iter().map(|c| c.lines.len()).collect();
@@ -75,7 +74,7 @@ impl View for Metadata {
 struct Help;
 impl View for Help {
     fn on_key(&self, bk: &mut Bk, _: KeyCode) {
-        bk.view = Some(&Page);
+        bk.view = &Page;
     }
     fn render(&self, _: &Bk) -> Vec<String> {
         let text = r#"
@@ -125,7 +124,7 @@ impl Toc {
         if start + row < bk.chapters.len() {
             bk.chapter = start + row;
             bk.line = 0;
-            bk.view = Some(&Page);
+            bk.view = &Page;
         }
     }
 }
@@ -146,12 +145,12 @@ impl View for Toc {
             Esc | Tab | Left | Char('h') | Char('q') => {
                 bk.jump_reset();
                 bk.cursor = 0;
-                bk.view = Some(&Page);
+                bk.view = &Page;
             }
             Enter | Right | Char('l') => {
                 bk.cursor = 0;
                 bk.line = 0;
-                bk.view = Some(&Page);
+                bk.view = &Page;
             }
             Down | Char('j') => self.next(bk, 1),
             Up | Char('k') => self.prev(bk, 1),
@@ -236,16 +235,16 @@ impl View for Page {
     }
     fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
-            Esc | Char('q') => bk.view = None,
+            Esc | Char('q') => bk.quit = true,
             Tab => {
                 bk.mark('\'');
                 Toc.cursor(bk);
-                bk.view = Some(&Toc);
+                bk.view = &Toc;
             }
-            F(_) => bk.view = Some(&Help),
-            Char('m') => bk.view = Some(&Mark),
-            Char('\'') => bk.view = Some(&Jump),
-            Char('i') => bk.view = Some(&Metadata),
+            F(_) => bk.view = &Help,
+            Char('m') => bk.view = &Mark,
+            Char('\'') => bk.view = &Jump,
+            Char('i') => bk.view = &Metadata,
             Char('?') => bk.start_search(Direction::Prev),
             Char('/') => bk.start_search(Direction::Next),
             Char('N') => {
@@ -380,10 +379,10 @@ impl View for Search {
         match kc {
             Esc => {
                 bk.jump_reset();
-                bk.view = Some(&Page);
+                bk.view = &Page;
             }
             Enter => {
-                bk.view = Some(&Page);
+                bk.view = &Page;
             }
             Backspace => {
                 bk.query.pop();

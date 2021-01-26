@@ -1,7 +1,7 @@
 use anyhow::Result;
 use crossterm::{
     cursor,
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
+    event::{DisableMouseCapture, EnableMouseCapture, Event},
     queue,
     style::{self, Print},
     terminal,
@@ -18,7 +18,7 @@ use std::{
 use unicode_width::UnicodeWidthChar;
 
 mod view;
-use view::{Toc, Page, Search, View};
+use view::{Page, Search, Toc, View};
 
 mod epub;
 use epub::Chapter;
@@ -97,6 +97,7 @@ enum Direction {
 }
 
 pub struct Bk<'a> {
+    quit: bool,
     chapters: Vec<epub::Chapter>,
     // position in the book
     chapter: usize,
@@ -108,7 +109,7 @@ pub struct Bk<'a> {
     rows: usize,
     max_width: u16,
     // view state
-    view: Option<&'a dyn View>,
+    view: &'a dyn View,
     cursor: usize,
     dir: Direction,
     meta: Vec<String>,
@@ -138,6 +139,7 @@ impl Bk<'_> {
         }
 
         let mut bk = Bk {
+            quit: false,
             chapters,
             chapter: args.chapter,
             line: 0,
@@ -146,7 +148,7 @@ impl Bk<'_> {
             cols,
             rows: rows as usize,
             max_width: args.width,
-            view: Some(if args.toc { &Toc } else { &Page }),
+            view: if args.toc { &Toc } else { &Page },
             cursor: 0,
             dir: Direction::Next,
             meta,
@@ -171,21 +173,31 @@ impl Bk<'_> {
         )?;
         terminal::enable_raw_mode()?;
 
-        while let Some(view) = self.view {
+        let mut render = |bk: &Bk| {
             queue!(
                 stdout,
                 terminal::Clear(terminal::ClearType::All),
                 Print(style::Attribute::Reset)
-            )?;
-            for (i, line) in view.render(self).iter().enumerate() {
-                queue!(stdout, cursor::MoveTo(self.pad(), i as u16), Print(line))?;
+            )
+            .unwrap();
+            for (i, line) in bk.view.render(bk).iter().enumerate() {
+                queue!(stdout, cursor::MoveTo(bk.pad(), i as u16), Print(line)).unwrap();
             }
-            queue!(stdout, cursor::MoveTo(self.pad(), self.cursor as u16))?;
+            queue!(stdout, cursor::MoveTo(bk.pad(), bk.cursor as u16)).unwrap();
             stdout.flush().unwrap();
+        };
 
-            match event::read()? {
-                Event::Key(e) => view.on_key(self, e.code),
-                Event::Mouse(e) => view.on_mouse(self, e),
+        render(self);
+        loop {
+            match crossterm::event::read()? {
+                Event::Key(e) => self.view.on_key(self, e.code),
+                Event::Mouse(e) => {
+                    // XXX idk seems lame
+                    if e.kind == crossterm::event::MouseEventKind::Moved {
+                        continue;
+                    }
+                    self.view.on_mouse(self, e);
+                }
                 Event::Resize(cols, rows) => {
                     self.rows = rows as usize;
                     if cols != self.cols {
@@ -195,10 +207,14 @@ impl Bk<'_> {
                             c.lines = wrap(&c.text, width);
                         }
                     }
-                    view.on_resize(self);
+                    self.view.on_resize(self);
                     // XXX marks aren't updated
                 }
             }
+            if self.quit {
+                break;
+            }
+            render(self);
         }
 
         queue!(
@@ -256,7 +272,7 @@ impl Bk<'_> {
         self.mark('\'');
         self.query.clear();
         self.dir = dir;
-        self.view = Some(&Search);
+        self.view = &Search;
     }
     fn search(&mut self, args: SearchArgs) -> bool {
         let (start, end) = self.chap().lines[self.line];
