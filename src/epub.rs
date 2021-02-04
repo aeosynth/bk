@@ -205,10 +205,10 @@ fn render(n: Node, c: &mut Chapter) {
             }
         }
         "em" => c.render(n, Attribute::Italic, Attribute::NoItalic),
-        "strong" => c.render(n, Attribute::Bold, Attribute::NoBold),
+        "strong" => c.render(n, Attribute::Bold, Attribute::NormalIntensity),
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
             c.text.push('\n');
-            c.render(n, Attribute::Bold, Attribute::NoBold);
+            c.render(n, Attribute::Bold, Attribute::NormalIntensity);
             c.text.push('\n');
         }
         "blockquote" | "div" | "p" | "tr" => {
