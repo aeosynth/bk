@@ -12,13 +12,12 @@ use std::{
     collections::HashMap,
     env, fs,
     io::{stdout, Write},
-    iter,
     process::exit,
 };
 use unicode_width::UnicodeWidthChar;
 
 mod view;
-use view::{Page, Search, Toc, View};
+use view::{Page, Toc, View};
 
 mod epub;
 use epub::Chapter;
@@ -133,7 +132,7 @@ impl Bk<'_> {
                     .title
                     .chars()
                     .take(width - 1)
-                    .chain(iter::once('…'))
+                    .chain(std::iter::once('…'))
                     .collect();
             }
         }
@@ -159,9 +158,6 @@ impl Bk<'_> {
         bk.mark('\'');
 
         bk
-    }
-    fn pad(&self) -> u16 {
-        self.cols.saturating_sub(self.max_width) / 2
     }
     fn run(&mut self) -> crossterm::Result<()> {
         let mut stdout = stdout();
@@ -225,8 +221,8 @@ impl Bk<'_> {
         )?;
         terminal::disable_raw_mode()
     }
-    fn mark(&mut self, c: char) {
-        self.mark.insert(c, (self.chapter, self.line));
+    fn chap(&self) -> &Chapter {
+        &self.chapters[self.chapter]
     }
     fn jump(&mut self, (c, l): (usize, usize)) {
         self.mark('\'');
@@ -238,74 +234,11 @@ impl Bk<'_> {
         self.chapter = c;
         self.line = l;
     }
-    fn chap(&self) -> &Chapter {
-        &self.chapters[self.chapter]
+    fn mark(&mut self, c: char) {
+        self.mark.insert(c, (self.chapter, self.line));
     }
-    fn next_chapter(&mut self) {
-        if self.chapter < self.chapters.len() - 1 {
-            self.chapter += 1;
-            self.line = 0;
-        }
-    }
-    fn prev_chapter(&mut self) {
-        if self.chapter > 0 {
-            self.chapter -= 1;
-            self.line = 0;
-        }
-    }
-    fn scroll_down(&mut self, n: usize) {
-        if self.line + self.rows < self.chap().lines.len() {
-            self.line += n;
-        } else {
-            self.next_chapter();
-        }
-    }
-    fn scroll_up(&mut self, n: usize) {
-        if self.line > 0 {
-            self.line = self.line.saturating_sub(n);
-        } else if self.chapter > 0 {
-            self.chapter -= 1;
-            self.line = self.chap().lines.len().saturating_sub(self.rows);
-        }
-    }
-    fn start_search(&mut self, dir: Direction) {
-        self.mark('\'');
-        self.query.clear();
-        self.dir = dir;
-        self.view = &Search;
-    }
-    fn search(&mut self, args: SearchArgs) -> bool {
-        let (start, end) = self.chap().lines[self.line];
-        match args.dir {
-            Direction::Next => {
-                let byte = if args.skip { end } else { start };
-                let head = (self.chapter, byte);
-                let tail = (self.chapter + 1..self.chapters.len() - 1).map(|n| (n, 0));
-                for (c, byte) in iter::once(head).chain(tail) {
-                    if let Some(index) = self.chapters[c].text[byte..].find(&self.query) {
-                        self.line = get_line(&self.chapters[c].lines, index + byte);
-                        self.chapter = c;
-                        return true;
-                    }
-                }
-                false
-            }
-            Direction::Prev => {
-                let byte = if args.skip { start } else { end };
-                let head = (self.chapter, byte);
-                let tail = (0..self.chapter)
-                    .rev()
-                    .map(|c| (c, self.chapters[c].text.len()));
-                for (c, byte) in iter::once(head).chain(tail) {
-                    if let Some(index) = self.chapters[c].text[..byte].rfind(&self.query) {
-                        self.line = get_line(&self.chapters[c].lines, index);
-                        self.chapter = c;
-                        return true;
-                    }
-                }
-                false
-            }
-        }
+    fn pad(&self) -> u16 {
+        self.cols.saturating_sub(self.max_width) / 2
     }
 }
 
@@ -377,7 +310,7 @@ fn init() -> Result<State> {
     }
 
     let (path, chapter, byte) = match (&save, &path) {
-        (Err(_), None) => return Err(anyhow::anyhow!("no path arg and no or invalid save file")),
+        (Err(_), None) => return Err(anyhow::anyhow!("no path arg and no valid save file")),
         (Err(_), Some(p)) => (p, 0, 0),
         (Ok(save), None) => {
             let &(chapter, byte) = save.files.get(&save.last).unwrap();

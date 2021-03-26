@@ -8,7 +8,7 @@ use crossterm::{
 use std::cmp::{min, Ordering};
 use unicode_width::UnicodeWidthChar;
 
-use crate::{get_line, Bk, Direction, SearchArgs};
+use crate::{Bk, Direction, SearchArgs};
 
 pub trait View {
     fn render(&self, bk: &Bk) -> Vec<String>;
@@ -148,8 +148,8 @@ impl View for Toc {
                 bk.view = &Page;
             }
             Enter | Right | Char('l') => {
-                bk.cursor = 0;
                 bk.line = 0;
+                bk.cursor = 0;
                 bk.view = &Page;
             }
             Down | Char('j') => self.next(bk, 1),
@@ -182,54 +182,90 @@ impl View for Toc {
 }
 
 pub struct Page;
+impl Page {
+    fn next_chapter(&self, bk: &mut Bk) {
+        if bk.chapter < bk.chapters.len() - 1 {
+            bk.chapter += 1;
+            bk.line = 0;
+        }
+    }
+    fn prev_chapter(&self, bk: &mut Bk) {
+        if bk.chapter > 0 {
+            bk.chapter -= 1;
+            bk.line = 0;
+        }
+    }
+    fn scroll_down(&self, bk: &mut Bk, n: usize) {
+        if bk.line + bk.rows < bk.chap().lines.len() {
+            bk.line += n;
+        } else {
+            self.next_chapter(bk);
+        }
+    }
+    fn scroll_up(&self, bk: &mut Bk, n: usize) {
+        if bk.line > 0 {
+            bk.line = bk.line.saturating_sub(n);
+        } else if bk.chapter > 0 {
+            bk.chapter -= 1;
+            bk.line = bk.chap().lines.len().saturating_sub(bk.rows);
+        }
+    }
+    fn click(&self, bk: &mut Bk, e: MouseEvent) {
+        let c = bk.chap();
+        let line = bk.line + e.row as usize;
+
+        if e.column < bk.pad() || line >= c.lines.len() {
+            return;
+        }
+        let (start, end) = c.lines[line];
+        let line_col = (e.column - bk.pad()) as usize;
+
+        let mut cols = 0;
+        let mut found = false;
+        let mut byte = start;
+        for (i, c) in c.text[start..end].char_indices() {
+            cols += c.width().unwrap();
+            if cols > line_col {
+                byte += i;
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            return;
+        }
+
+        let r = c.links.binary_search_by(|&(start, end, _)| {
+            if start > byte {
+                Ordering::Greater
+            } else if end <= byte {
+                Ordering::Less
+            } else {
+                Ordering::Equal
+            }
+        });
+
+        if let Ok(i) = r {
+            let url = &c.links[i].2;
+            let &(chapter, byte) = bk.links.get(url).unwrap();
+            let line = super::get_line(&bk.chapters[chapter].lines, byte);
+            bk.jump((chapter, line));
+        }
+    }
+    fn start_search(&self, bk: &mut Bk, dir: Direction) {
+        bk.mark('\'');
+        bk.query.clear();
+        bk.dir = dir;
+        bk.view = &Search;
+    }
+}
 impl View for Page {
     fn on_mouse(&self, bk: &mut Bk, e: MouseEvent) {
         match e.kind {
-            MouseEventKind::Down(_) => {
-                let c = bk.chap();
-                let line = bk.line + e.row as usize;
-
-                if e.column < bk.pad() || line >= c.lines.len() {
-                    return;
-                }
-                let (start, end) = c.lines[line];
-                let line_col = (e.column - bk.pad()) as usize;
-
-                let mut cols = 0;
-                let mut found = false;
-                let mut byte = start;
-                for (i, c) in c.text[start..end].char_indices() {
-                    cols += c.width().unwrap();
-                    if cols > line_col {
-                        byte += i;
-                        found = true;
-                        break;
-                    }
-                }
-
-                if !found {
-                    return;
-                }
-
-                let r = c.links.binary_search_by(|&(start, end, _)| {
-                    if start > byte {
-                        Ordering::Greater
-                    } else if end <= byte {
-                        Ordering::Less
-                    } else {
-                        Ordering::Equal
-                    }
-                });
-
-                if let Ok(i) = r {
-                    let url = &c.links[i].2;
-                    let &(chapter, byte) = bk.links.get(url).unwrap();
-                    let line = get_line(&bk.chapters[chapter].lines, byte);
-                    bk.jump((chapter, line));
-                }
-            }
-            MouseEventKind::ScrollDown => bk.scroll_down(3),
-            MouseEventKind::ScrollUp => bk.scroll_up(3),
+            MouseEventKind::Down(_) => self.click(bk, e),
+            MouseEventKind::ScrollDown => self.scroll_down(bk, 3),
+            MouseEventKind::ScrollUp => self.scroll_up(bk, 3),
             _ => (),
         }
     }
@@ -245,19 +281,27 @@ impl View for Page {
             Char('m') => bk.view = &Mark,
             Char('\'') => bk.view = &Jump,
             Char('i') => bk.view = &Metadata,
-            Char('?') => bk.start_search(Direction::Prev),
-            Char('/') => bk.start_search(Direction::Next),
+            Char('?') => self.start_search(bk, Direction::Prev),
+            Char('/') => self.start_search(bk, Direction::Next),
             Char('N') => {
-                bk.search(SearchArgs {
-                    dir: Direction::Prev,
-                    skip: true,
-                });
+                Search::search(
+                    &Search,
+                    bk,
+                    SearchArgs {
+                        dir: Direction::Prev,
+                        skip: true,
+                    },
+                );
             }
             Char('n') => {
-                bk.search(SearchArgs {
-                    dir: Direction::Next,
-                    skip: true,
-                });
+                Search::search(
+                    &Search,
+                    bk,
+                    SearchArgs {
+                        dir: Direction::Next,
+                        skip: true,
+                    },
+                );
             }
             End | Char('G') => {
                 bk.mark('\'');
@@ -267,16 +311,16 @@ impl View for Page {
                 bk.mark('\'');
                 bk.line = 0;
             }
-            Char('d') => bk.scroll_down(bk.rows / 2),
-            Char('u') => bk.scroll_up(bk.rows / 2),
-            Up | Char('k') => bk.scroll_up(3),
+            Char('d') => self.scroll_down(bk, bk.rows / 2),
+            Char('u') => self.scroll_up(bk, bk.rows / 2),
+            Up | Char('k') => self.scroll_up(bk, 3),
             Left | PageUp | Char('b') | Char('h') => {
-                bk.scroll_up(bk.rows);
+                self.scroll_up(bk, bk.rows);
             }
-            Down | Char('j') => bk.scroll_down(3),
-            Right | PageDown | Char('f') | Char('l') | Char(' ') => bk.scroll_down(bk.rows),
-            Char('[') => bk.prev_chapter(),
-            Char(']') => bk.next_chapter(),
+            Down | Char('j') => self.scroll_down(bk, 3),
+            Right | PageDown | Char('f') | Char('l') | Char(' ') => self.scroll_down(bk, bk.rows),
+            Char('[') => self.prev_chapter(bk),
+            Char(']') => self.next_chapter(bk),
             _ => (),
         }
     }
@@ -374,11 +418,47 @@ impl View for Page {
 }
 
 pub struct Search;
+impl Search {
+    fn search(&self, bk: &mut Bk, args: SearchArgs) -> bool {
+        let (start, end) = bk.chap().lines[bk.line];
+        match args.dir {
+            Direction::Next => {
+                let byte = if args.skip { end } else { start };
+                let head = (bk.chapter, byte);
+                let tail = (bk.chapter + 1..bk.chapters.len() - 1).map(|n| (n, 0));
+                for (c, byte) in std::iter::once(head).chain(tail) {
+                    if let Some(index) = bk.chapters[c].text[byte..].find(&bk.query) {
+                        bk.line = super::get_line(&bk.chapters[c].lines, index + byte);
+                        bk.chapter = c;
+                        return true;
+                    }
+                }
+                false
+            }
+            Direction::Prev => {
+                let byte = if args.skip { start } else { end };
+                let head = (bk.chapter, byte);
+                let tail = (0..bk.chapter)
+                    .rev()
+                    .map(|c| (c, bk.chapters[c].text.len()));
+                for (c, byte) in std::iter::once(head).chain(tail) {
+                    if let Some(index) = bk.chapters[c].text[..byte].rfind(&bk.query) {
+                        bk.line = super::get_line(&bk.chapters[c].lines, index);
+                        bk.chapter = c;
+                        return true;
+                    }
+                }
+                false
+            }
+        }
+    }
+}
 impl View for Search {
     fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             Esc => {
                 bk.jump_reset();
+                bk.query.clear();
                 bk.view = &Page;
             }
             Enter => {
@@ -387,10 +467,13 @@ impl View for Search {
             Backspace => {
                 bk.query.pop();
                 bk.jump_reset();
-                bk.search(SearchArgs {
-                    dir: bk.dir.clone(),
-                    skip: false,
-                });
+                self.search(
+                    bk,
+                    SearchArgs {
+                        dir: bk.dir.clone(),
+                        skip: false,
+                    },
+                );
             }
             Char(c) => {
                 bk.query.push(c);
@@ -398,7 +481,7 @@ impl View for Search {
                     dir: bk.dir.clone(),
                     skip: false,
                 };
-                if !bk.search(args) {
+                if self.search(bk, args) {
                     bk.jump_reset();
                 }
             }
