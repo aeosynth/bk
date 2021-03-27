@@ -5,7 +5,10 @@ use crossterm::{
     },
     style::Attribute,
 };
-use std::cmp::{min, Ordering};
+use std::{
+    cmp::{min, Ordering},
+    iter,
+};
 use unicode_width::UnicodeWidthChar;
 
 use crate::{Bk, Direction, SearchArgs};
@@ -330,89 +333,89 @@ impl View for Page {
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
         let c = bk.chap();
-        let line_end = min(bk.line + bk.rows, c.lines.len());
+        let last_line = min(bk.line + bk.rows, c.lines.len());
+        let text_start = c.lines[bk.line].0;
+        let text_end = c.lines[last_line - 1].1;
 
-        let attrs = {
-            let text_start = c.lines[bk.line].0;
-            let text_end = c.lines[line_end - 1].1;
-
-            let qlen = bk.query.len();
-            let mut search = Vec::new();
-            if qlen > 0 {
-                for (pos, _) in c.text[text_start..text_end].match_indices(&bk.query) {
-                    search.push((text_start + pos, Attribute::Reverse));
-                    search.push((text_start + pos + qlen, Attribute::NoReverse));
-                }
-            }
-            let mut search_iter = search.into_iter().peekable();
-
-            let mut merged = Vec::new();
-            let attr_start = match c
+        let mut base = {
+            let start = match c
                 .attrs
-                .binary_search_by_key(&text_start, |&(pos, _, _)| pos)
+                .binary_search_by_key(&text_start, |&x| x.0)
             {
                 Ok(n) => n,
                 Err(n) => n - 1,
             };
-            let mut attrs_iter = c.attrs[attr_start..].iter();
-            let (_, _, attr) = attrs_iter.next().unwrap();
+
+            let attr = c.attrs[start].2;
+            let mut head = Vec::new();
             if attr.has(Attribute::Bold) {
-                merged.push((text_start, Attribute::Bold));
+                head.push((text_start, Attribute::Bold));
             }
             if attr.has(Attribute::Italic) {
-                merged.push((text_start, Attribute::Italic));
+                head.push((text_start, Attribute::Italic));
             }
             if attr.has(Attribute::Underlined) {
-                merged.push((text_start, Attribute::Underlined));
+                head.push((text_start, Attribute::Underlined));
             }
-            let mut attrs_iter = attrs_iter
-                .map(|&(pos, a, _)| (pos, a))
-                .take_while(|(pos, _)| pos <= &text_end)
-                .peekable();
-
-            // use itertools?
-            loop {
-                match (search_iter.peek(), attrs_iter.peek()) {
-                    (None, None) => break,
-                    (Some(_), None) => {
-                        merged.extend(search_iter);
-                        break;
-                    }
-                    (None, Some(_)) => {
-                        merged.extend(attrs_iter);
-                        break;
-                    }
-                    (Some(&s), Some(&a)) => {
-                        if s.0 < a.0 {
-                            merged.push(s);
-                            search_iter.next();
-                        } else {
-                            merged.push(a);
-                            attrs_iter.next();
-                        }
-                    }
-                }
-            }
-
-            merged
+            let tail = c.attrs[start + 1..]
+                        .iter()
+                        .take_while(|x| x.0 < text_end)
+                        .map(|x| (x.0, x.1));
+            head.into_iter().chain(tail).peekable()
         };
 
-        let mut buf = Vec::new();
-        let mut iter = attrs.into_iter().peekable();
-        for &(mut start, end) in &c.lines[bk.line..line_end] {
-            let mut s = String::new();
-            while let Some(&(pos, attr)) = iter.peek() {
-                if pos > end {
+        let mut search = Vec::new();
+        if !bk.query.is_empty() {
+            let len = bk.query.len();
+            for (pos, _) in c.text[text_start..text_end].match_indices(&bk.query) {
+                search.push((text_start + pos, Attribute::Reverse));
+                search.push((text_start + pos + len, Attribute::NoReverse));
+            }
+        }
+        let mut search = search.into_iter().peekable();
+
+        let mut attrs = Vec::new();
+        loop {
+            match (search.peek(), base.peek()) {
+                (None, None) => break,
+                (Some(_), None) => {
+                    attrs.extend(search);
                     break;
                 }
-                s.push_str(&c.text[start..pos]);
-                s.push_str(&attr.to_string());
-                start = pos;
-                iter.next();
+                (None, Some(_)) => {
+                    attrs.extend(base);
+                    break;
+                }
+                (Some(&s), Some(&b)) => {
+                    if s.0 < b.0 {
+                        attrs.push(s);
+                        search.next();
+                    } else {
+                        attrs.push(b);
+                        base.next();
+                    }
+                }
             }
-            s.push_str(&c.text[start..end]);
+        }
+        let mut attrs = attrs.into_iter().peekable();
+
+        // itertools: peeking take while
+        let mut buf = Vec::with_capacity(last_line - bk.line);
+        for &(mut pos, line_end) in &c.lines[bk.line..last_line] {
+            let mut s = String::new();
+            while let Some(&(attr_pos, attr)) = attrs.peek() {
+                if attr_pos > line_end {
+                    break;
+                }
+                s.push_str(&c.text[pos..attr_pos]);
+                s.push_str(&attr.to_string());
+                pos = attr_pos;
+                attrs.next();
+            }
+            s.push_str(&c.text[pos..line_end]);
             buf.push(s);
         }
+
         buf
     }
 }
@@ -426,7 +429,7 @@ impl Search {
                 let byte = if args.skip { end } else { start };
                 let head = (bk.chapter, byte);
                 let tail = (bk.chapter + 1..bk.chapters.len() - 1).map(|n| (n, 0));
-                for (c, byte) in std::iter::once(head).chain(tail) {
+                for (c, byte) in iter::once(head).chain(tail) {
                     if let Some(index) = bk.chapters[c].text[byte..].find(&bk.query) {
                         bk.line = super::get_line(&bk.chapters[c].lines, index + byte);
                         bk.chapter = c;
@@ -441,7 +444,7 @@ impl Search {
                 let tail = (0..bk.chapter)
                     .rev()
                     .map(|c| (c, bk.chapters[c].text.len()));
-                for (c, byte) in std::iter::once(head).chain(tail) {
+                for (c, byte) in iter::once(head).chain(tail) {
                     if let Some(index) = bk.chapters[c].text[..byte].rfind(&bk.query) {
                         bk.line = super::get_line(&bk.chapters[c].lines, index);
                         bk.chapter = c;
@@ -481,7 +484,7 @@ impl View for Search {
                     dir: bk.dir.clone(),
                     skip: false,
                 };
-                if self.search(bk, args) {
+                if !self.search(bk, args) {
                     bk.jump_reset();
                 }
             }
