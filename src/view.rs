@@ -338,29 +338,23 @@ impl View for Page {
         let text_end = c.lines[last_line - 1].1;
 
         let mut base = {
-            let start = match c
-                .attrs
-                .binary_search_by_key(&text_start, |&x| x.0)
-            {
+            let start = match c.attrs.binary_search_by_key(&text_start, |&x| x.0) {
                 Ok(n) => n,
                 Err(n) => n - 1,
             };
 
-            let attr = c.attrs[start].2;
+            let map = c.attrs[start].2;
             let mut head = Vec::new();
-            if attr.has(Attribute::Bold) {
-                head.push((text_start, Attribute::Bold));
-            }
-            if attr.has(Attribute::Italic) {
-                head.push((text_start, Attribute::Italic));
-            }
-            if attr.has(Attribute::Underlined) {
-                head.push((text_start, Attribute::Underlined));
+            let list = [Attribute::Bold, Attribute::Italic, Attribute::Underlined];
+            for attr in std::array::IntoIter::new(list) {
+                if map.has(attr) {
+                    head.push((text_start, attr));
+                }
             }
             let tail = c.attrs[start + 1..]
-                        .iter()
-                        .take_while(|x| x.0 < text_end)
-                        .map(|x| (x.0, x.1));
+                .iter()
+                .take_while(|x| x.0 <= text_end)
+                .map(|x| (x.0, x.1));
             head.into_iter().chain(tail).peekable()
         };
 
@@ -399,18 +393,13 @@ impl View for Page {
         }
         let mut attrs = attrs.into_iter().peekable();
 
-        // itertools: peeking take while
         let mut buf = Vec::with_capacity(last_line - bk.line);
         for &(mut pos, line_end) in &c.lines[bk.line..last_line] {
             let mut s = String::new();
-            while let Some(&(attr_pos, attr)) = attrs.peek() {
-                if attr_pos > line_end {
-                    break;
-                }
+            while let Some((attr_pos, attr)) = attrs.next_if(|a| a.0 <= line_end) {
                 s.push_str(&c.text[pos..attr_pos]);
                 s.push_str(&attr.to_string());
                 pos = attr_pos;
-                attrs.next();
             }
             s.push_str(&c.text[pos..line_end]);
             buf.push(s);
