@@ -1,0 +1,29 @@
+name: Main
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Stable rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Build
+        run: |
+          cargo build --verbose --release
+          mv target/release/bk bk-linux
+          strip bk-linux
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: bk-linux
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
