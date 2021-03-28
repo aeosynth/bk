@@ -1,4 +1,3 @@
-use anyhow::Result;
 use crossterm::{
     cursor,
     event::{DisableMouseCapture, EnableMouseCapture, Event},
@@ -11,7 +10,7 @@ use std::{
     cmp::min,
     collections::HashMap,
     env, fs,
-    io::{stdout, Write},
+    io::{self, Write},
     process::exit,
 };
 use unicode_width::UnicodeWidthChar;
@@ -160,7 +159,7 @@ impl Bk<'_> {
         bk
     }
     fn run(&mut self) -> crossterm::Result<()> {
-        let mut stdout = stdout();
+        let mut stdout = io::stdout();
         queue!(
             stdout,
             terminal::EnterAlternateScreen,
@@ -282,7 +281,7 @@ struct State {
     bk: Props,
 }
 
-fn init() -> Result<State> {
+fn init() -> Result<State, Box<dyn std::error::Error>> {
     let save_path = if cfg!(windows) {
         format!("{}\\bk", env::var("APPDATA")?)
     } else {
@@ -290,46 +289,38 @@ fn init() -> Result<State> {
     };
     // XXX will silently create a new default save if ron errors but path arg works.
     // revisit if/when stabilizing. ez file format upgrades
-    let save = fs::read_to_string(&save_path)
-        .map_err(anyhow::Error::new)
-        .and_then(|s| {
-            let save: Save = ron::from_str(&s)?;
-            Ok(save)
-        });
+    let save: io::Result<Save> = fs::read_to_string(&save_path).and_then(|s| {
+        ron::from_str(&s)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid save file"))
+    });
     let args: Args = argh::from_env();
 
     let mut path = args.path;
-    // abort on path error
-    if path.is_some() {
-        path = Some(
-            fs::canonicalize(path.unwrap())?
-                .to_str()
-                .unwrap()
-                .to_string(),
-        );
+    if let Some(p) = path {
+        path = Some(fs::canonicalize(p)?.to_str().unwrap().to_string());
     }
 
-    let (path, chapter, byte) = match (&save, &path) {
-        (Err(_), None) => return Err(anyhow::anyhow!("no path arg and no valid save file")),
-        (Err(_), Some(p)) => (p, 0, 0),
-        (Ok(save), None) => {
-            let &(chapter, byte) = save.files.get(&save.last).unwrap();
-            (&save.last, chapter, byte)
+    let (path, save, chapter, byte) = match (save, path) {
+        (Err(e), None) => return Err(Box::new(e)),
+        (Err(_), Some(p)) => (p, Save::default(), 0, 0),
+        (Ok(s), None) => {
+            let &(chapter, byte) = s.files.get(&s.last).unwrap();
+            (s.last.clone(), s, chapter, byte)
         }
-        (Ok(save), Some(p)) => {
-            if save.files.contains_key(p) {
-                let &(chapter, byte) = save.files.get(p).unwrap();
-                (p, chapter, byte)
+        (Ok(s), Some(p)) => {
+            if s.files.contains_key(&p) {
+                let &(chapter, byte) = s.files.get(&p).unwrap();
+                (p, s, chapter, byte)
             } else {
-                (p, 0, 0)
+                (p, s, 0, 0)
             }
         }
     };
 
     Ok(State {
+        path,
+        save,
         save_path,
-        path: path.clone(),
-        save: save.unwrap_or_default(),
         meta: args.meta,
         bk: Props {
             chapter,

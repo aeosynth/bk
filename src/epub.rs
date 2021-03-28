@@ -1,7 +1,10 @@
-use anyhow::Result;
 use crossterm::style::{Attribute, Attributes};
 use roxmltree::{Document, Node, ParsingOptions};
-use std::{collections::HashMap, fs::File, io::Read};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{self, Read},
+};
 
 pub struct Chapter {
     pub title: String,
@@ -24,7 +27,7 @@ pub struct Epub {
 }
 
 impl Epub {
-    pub fn new(path: &str, meta: bool) -> Result<Self> {
+    pub fn new(path: &str, meta: bool) -> io::Result<Self> {
         let file = File::open(path)?;
         let mut epub = Epub {
             container: zip::ZipArchive::new(file)?,
@@ -33,7 +36,7 @@ impl Epub {
             links: HashMap::new(),
             meta: String::new(),
         };
-        let chapters = epub.get_spine()?;
+        let chapters = epub.get_spine();
         if !meta {
             epub.get_chapters(chapters);
         }
@@ -85,7 +88,7 @@ impl Epub {
             self.chapters.push(c);
         }
     }
-    fn get_spine(&mut self) -> Result<Vec<(String, String)>> {
+    fn get_spine(&mut self) -> Vec<(String, String)> {
         let xml = self.get_text("META-INF/container.xml");
         let doc = Document::parse(&xml).unwrap();
         let path = doc
@@ -141,7 +144,7 @@ impl Epub {
             let doc = Document::parse(&xml).unwrap();
             epub2(doc, &mut nav);
         }
-        Ok(spine_node
+        spine_node
             .children()
             .filter(Node::is_element)
             .enumerate()
@@ -151,7 +154,7 @@ impl Epub {
                 let label = nav.remove(path).unwrap_or_else(|| i.to_string());
                 (label, path.to_string())
             })
-            .collect())
+            .collect()
     }
 }
 
