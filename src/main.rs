@@ -11,6 +11,7 @@ use std::{
     collections::HashMap,
     env, fs,
     io::{self, Write},
+    iter,
     process::exit,
 };
 use unicode_width::UnicodeWidthChar;
@@ -19,7 +20,6 @@ mod view;
 use view::{Page, Toc, View};
 
 mod epub;
-use epub::Chapter;
 
 fn wrap(text: &str, max_cols: usize) -> Vec<(usize, usize)> {
     let mut lines = Vec::new();
@@ -74,13 +74,6 @@ fn wrap(text: &str, max_cols: usize) -> Vec<(usize, usize)> {
     }
 
     lines
-}
-
-fn get_line(lines: &[(usize, usize)], byte: usize) -> usize {
-    match lines.binary_search_by_key(&byte, |&(a, _)| a) {
-        Ok(n) => n,
-        Err(n) => n - 1,
-    }
 }
 
 struct SearchArgs {
@@ -139,7 +132,7 @@ impl Bk<'_> {
         let mut bk = Bk {
             quit: false,
             chapters,
-            chapter: args.chapter,
+            chapter: 0,
             line: 0,
             mark: HashMap::new(),
             links: epub.links,
@@ -153,7 +146,7 @@ impl Bk<'_> {
             query: String::new(),
         };
 
-        bk.line = get_line(&bk.chap().lines, args.byte);
+        bk.jump_byte(args.chapter, args.byte);
         bk.mark('\'');
 
         bk
@@ -220,13 +213,20 @@ impl Bk<'_> {
         )?;
         terminal::disable_raw_mode()
     }
-    fn chap(&self) -> &Chapter {
-        &self.chapters[self.chapter]
-    }
     fn jump(&mut self, (c, l): (usize, usize)) {
         self.mark('\'');
         self.chapter = c;
         self.line = l;
+    }
+    fn jump_byte(&mut self, c: usize, byte: usize) {
+        self.chapter = c;
+        self.line = match self.chapters[c]
+            .lines
+            .binary_search_by_key(&byte, |&(a, _)| a)
+        {
+            Ok(n) => n,
+            Err(n) => n - 1,
+        }
     }
     fn jump_reset(&mut self) {
         let &(c, l) = self.mark.get(&'\'').unwrap();
@@ -238,6 +238,37 @@ impl Bk<'_> {
     }
     fn pad(&self) -> u16 {
         self.cols.saturating_sub(self.max_width) / 2
+    }
+    fn search(&mut self, args: SearchArgs) -> bool {
+        let (start, end) = self.chapters[self.chapter].lines[self.line];
+        match args.dir {
+            Direction::Next => {
+                let byte = if args.skip { end } else { start };
+                let head = (self.chapter, byte);
+                let tail = (self.chapter + 1..self.chapters.len() - 1).map(|n| (n, 0));
+                for (c, byte) in iter::once(head).chain(tail) {
+                    if let Some(index) = self.chapters[c].text[byte..].find(&self.query) {
+                        self.jump_byte(c, index + byte);
+                        return true;
+                    }
+                }
+                false
+            }
+            Direction::Prev => {
+                let byte = if args.skip { start } else { end };
+                let head = (self.chapter, byte);
+                let tail = (0..self.chapter)
+                    .rev()
+                    .map(|c| (c, self.chapters[c].text.len()));
+                for (c, byte) in iter::once(head).chain(tail) {
+                    if let Some(index) = self.chapters[c].text[..byte].rfind(&self.query) {
+                        self.jump_byte(c, index);
+                        return true;
+                    }
+                }
+                false
+            }
+        }
     }
 }
 
@@ -295,10 +326,10 @@ fn init() -> Result<State, Box<dyn std::error::Error>> {
     });
     let args: Args = argh::from_env();
 
-    let mut path = args.path;
-    if let Some(p) = path {
-        path = Some(fs::canonicalize(p)?.to_str().unwrap().to_string());
-    }
+    let path = match args.path {
+        Some(p) => Some(fs::canonicalize(p)?.to_str().unwrap().to_string()),
+        None => None,
+    };
 
     let (path, save, chapter, byte) = match (save, path) {
         (Err(e), None) => return Err(Box::new(e)),
@@ -350,7 +381,7 @@ fn main() {
         exit(1);
     });
 
-    let byte = bk.chap().lines[bk.line].0;
+    let byte = bk.chapters[bk.chapter].lines[bk.line].0;
     state
         .save
         .files

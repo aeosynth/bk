@@ -5,10 +5,7 @@ use crossterm::{
     },
     style::Attribute,
 };
-use std::{
-    cmp::{min, Ordering},
-    iter,
-};
+use std::cmp::{min, Ordering};
 use unicode_width::UnicodeWidthChar;
 
 use crate::{Bk, Direction, SearchArgs};
@@ -199,7 +196,7 @@ impl Page {
         }
     }
     fn scroll_down(&self, bk: &mut Bk, n: usize) {
-        if bk.line + bk.rows < bk.chap().lines.len() {
+        if bk.line + bk.rows < bk.chapters[bk.chapter].lines.len() {
             bk.line += n;
         } else {
             self.next_chapter(bk);
@@ -210,11 +207,11 @@ impl Page {
             bk.line = bk.line.saturating_sub(n);
         } else if bk.chapter > 0 {
             bk.chapter -= 1;
-            bk.line = bk.chap().lines.len().saturating_sub(bk.rows);
+            bk.line = bk.chapters[bk.chapter].lines.len().saturating_sub(bk.rows);
         }
     }
     fn click(&self, bk: &mut Bk, e: MouseEvent) {
-        let c = bk.chap();
+        let c = &bk.chapters[bk.chapter];
         let line = bk.line + e.row as usize;
 
         if e.column < bk.pad() || line >= c.lines.len() {
@@ -251,9 +248,9 @@ impl Page {
 
         if let Ok(i) = r {
             let url = &c.links[i].2;
-            let &(chapter, byte) = bk.links.get(url).unwrap();
-            let line = super::get_line(&bk.chapters[chapter].lines, byte);
-            bk.jump((chapter, line));
+            let &(c, byte) = bk.links.get(url).unwrap();
+            bk.mark('\'');
+            bk.jump_byte(c, byte);
         }
     }
     fn start_search(&self, bk: &mut Bk, dir: Direction) {
@@ -287,28 +284,20 @@ impl View for Page {
             Char('?') => self.start_search(bk, Direction::Prev),
             Char('/') => self.start_search(bk, Direction::Next),
             Char('N') => {
-                Search::search(
-                    &Search,
-                    bk,
-                    SearchArgs {
-                        dir: Direction::Prev,
-                        skip: true,
-                    },
-                );
+                bk.search(SearchArgs {
+                    dir: Direction::Prev,
+                    skip: true,
+                });
             }
             Char('n') => {
-                Search::search(
-                    &Search,
-                    bk,
-                    SearchArgs {
-                        dir: Direction::Next,
-                        skip: true,
-                    },
-                );
+                bk.search(SearchArgs {
+                    dir: Direction::Next,
+                    skip: true,
+                });
             }
             End | Char('G') => {
                 bk.mark('\'');
-                bk.line = bk.chap().lines.len().saturating_sub(bk.rows);
+                bk.line = bk.chapters[bk.chapter].lines.len().saturating_sub(bk.rows);
             }
             Home | Char('g') => {
                 bk.mark('\'');
@@ -329,13 +318,23 @@ impl View for Page {
     }
     fn on_resize(&self, bk: &mut Bk) {
         // lazy
-        bk.line = min(bk.line, bk.chap().lines.len() - 1);
+        bk.line = min(bk.line, bk.chapters[bk.chapter].lines.len() - 1);
     }
     fn render(&self, bk: &Bk) -> Vec<String> {
-        let c = bk.chap();
+        let c = &bk.chapters[bk.chapter];
         let last_line = min(bk.line + bk.rows, c.lines.len());
         let text_start = c.lines[bk.line].0;
         let text_end = c.lines[last_line - 1].1;
+
+        let mut search = Vec::new();
+        if !bk.query.is_empty() {
+            let len = bk.query.len();
+            for (pos, _) in c.text[text_start..text_end].match_indices(&bk.query) {
+                search.push((text_start + pos, Attribute::Reverse));
+                search.push((text_start + pos + len, Attribute::NoReverse));
+            }
+        }
+        let mut search = search.into_iter().peekable();
 
         let mut base = {
             let start = match c.attrs.binary_search_by_key(&text_start, |&x| x.0) {
@@ -357,16 +356,6 @@ impl View for Page {
                 .map(|x| (x.0, x.1));
             head.into_iter().chain(tail).peekable()
         };
-
-        let mut search = Vec::new();
-        if !bk.query.is_empty() {
-            let len = bk.query.len();
-            for (pos, _) in c.text[text_start..text_end].match_indices(&bk.query) {
-                search.push((text_start + pos, Attribute::Reverse));
-                search.push((text_start + pos + len, Attribute::NoReverse));
-            }
-        }
-        let mut search = search.into_iter().peekable();
 
         let mut attrs = Vec::new();
         loop {
@@ -410,41 +399,6 @@ impl View for Page {
 }
 
 pub struct Search;
-impl Search {
-    fn search(&self, bk: &mut Bk, args: SearchArgs) -> bool {
-        let (start, end) = bk.chap().lines[bk.line];
-        match args.dir {
-            Direction::Next => {
-                let byte = if args.skip { end } else { start };
-                let head = (bk.chapter, byte);
-                let tail = (bk.chapter + 1..bk.chapters.len() - 1).map(|n| (n, 0));
-                for (c, byte) in iter::once(head).chain(tail) {
-                    if let Some(index) = bk.chapters[c].text[byte..].find(&bk.query) {
-                        bk.line = super::get_line(&bk.chapters[c].lines, index + byte);
-                        bk.chapter = c;
-                        return true;
-                    }
-                }
-                false
-            }
-            Direction::Prev => {
-                let byte = if args.skip { start } else { end };
-                let head = (bk.chapter, byte);
-                let tail = (0..bk.chapter)
-                    .rev()
-                    .map(|c| (c, bk.chapters[c].text.len()));
-                for (c, byte) in iter::once(head).chain(tail) {
-                    if let Some(index) = bk.chapters[c].text[..byte].rfind(&bk.query) {
-                        bk.line = super::get_line(&bk.chapters[c].lines, index);
-                        bk.chapter = c;
-                        return true;
-                    }
-                }
-                false
-            }
-        }
-    }
-}
 impl View for Search {
     fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
@@ -459,13 +413,10 @@ impl View for Search {
             Backspace => {
                 bk.query.pop();
                 bk.jump_reset();
-                self.search(
-                    bk,
-                    SearchArgs {
-                        dir: bk.dir.clone(),
-                        skip: false,
-                    },
-                );
+                bk.search(SearchArgs {
+                    dir: bk.dir.clone(),
+                    skip: false,
+                });
             }
             Char(c) => {
                 bk.query.push(c);
@@ -473,7 +424,7 @@ impl View for Search {
                     dir: bk.dir.clone(),
                     skip: false,
                 };
-                if !self.search(bk, args) {
+                if !bk.search(args) {
                     bk.jump_reset();
                 }
             }
