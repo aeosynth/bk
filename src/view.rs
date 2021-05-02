@@ -175,7 +175,7 @@ impl View for Toc {
             "{}{}{}",
             Attribute::Reverse,
             arr[bk.cursor],
-            Attribute::Reset
+            Attribute::NoReverse
         );
         arr
     }

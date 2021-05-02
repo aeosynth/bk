@@ -26,6 +26,8 @@ or from github:
     read a book
 
     Options:
+      --bg              background color (eg 282a36)
+      --fg              foreground color (eg f8f8f2)
       -m, --meta        print metadata and exit
       -t, --toc         start with table of contents open
       -w, --width       characters per line
@@ -44,13 +46,12 @@ Check if your terminal supports italics:
 | - | - | - |
 | runtime deps | ❌ | python, curses |
 | wide characters | ✔️ | ❌ |
-| inline styles | ✔️ | ❌ |
 | incremental search | ✔️ | ❌ |
 | multi line search | ✔️ | ❌ |
 | regex search | ❌ | ✔️ |
 | links | ✔️ | ❌ |
 | images | ❌ | ✔️ |
-| themes | ❌ | ✔️ |
+| themes | ✔️ | ✔️ |
 | choose file from history | ❌ | ✔️ |
 | additional formats | ❌ | FictionBook, Mobi, AZW3 |
 | external integration | see 1 | dictionary |

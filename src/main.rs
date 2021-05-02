@@ -2,7 +2,7 @@ use crossterm::{
     cursor,
     event::{DisableMouseCapture, EnableMouseCapture, Event},
     queue,
-    style::{self, Print},
+    style::{self, Color::Rgb, Colors, Print, SetColors},
     terminal,
 };
 use serde::{Deserialize, Serialize};
@@ -96,6 +96,7 @@ pub struct Bk<'a> {
     mark: HashMap<char, (usize, usize)>,
     links: HashMap<String, (usize, usize)>,
     // layout
+    colors: Colors,
     cols: u16,
     rows: usize,
     max_width: u16,
@@ -136,6 +137,7 @@ impl Bk<'_> {
             line: 0,
             mark: HashMap::new(),
             links: epub.links,
+            colors: args.colors,
             cols,
             rows: rows as usize,
             max_width: args.width,
@@ -157,15 +159,16 @@ impl Bk<'_> {
             stdout,
             terminal::EnterAlternateScreen,
             cursor::Hide,
-            EnableMouseCapture
+            EnableMouseCapture,
         )?;
         terminal::enable_raw_mode()?;
 
         let mut render = |bk: &Bk| {
             queue!(
                 stdout,
+                Print(style::Attribute::Reset),
+                SetColors(bk.colors),
                 terminal::Clear(terminal::ClearType::All),
-                Print(style::Attribute::Reset)
             )
             .unwrap();
             for (i, line) in bk.view.render(bk).iter().enumerate() {
@@ -278,6 +281,14 @@ struct Args {
     #[argh(positional)]
     path: Option<String>,
 
+    /// background color (eg 282a36)
+    #[argh(option)]
+    bg: Option<String>,
+
+    /// foreground color (eg f8f8f2)
+    #[argh(option)]
+    fg: Option<String>,
+
     /// print metadata and exit
     #[argh(switch, short = 'm')]
     meta: bool,
@@ -292,6 +303,7 @@ struct Args {
 }
 
 struct Props {
+    colors: Colors,
     chapter: usize,
     byte: usize,
     width: u16,
@@ -348,12 +360,35 @@ fn init() -> Result<State, Box<dyn std::error::Error>> {
         }
     };
 
+    // XXX oh god what
+    let fg = args
+        .fg
+        .and_then(|s| {
+            Some(Rgb {
+                r: u8::from_str_radix(&s[0..2], 16).unwrap(),
+                g: u8::from_str_radix(&s[2..4], 16).unwrap(),
+                b: u8::from_str_radix(&s[4..6], 16).unwrap(),
+            })
+        })
+        .unwrap_or(style::Color::Reset);
+    let bg = args
+        .bg
+        .and_then(|s| {
+            Some(Rgb {
+                r: u8::from_str_radix(&s[0..2], 16).unwrap(),
+                g: u8::from_str_radix(&s[2..4], 16).unwrap(),
+                b: u8::from_str_radix(&s[4..6], 16).unwrap(),
+            })
+        })
+        .unwrap_or(style::Color::Reset);
+
     Ok(State {
         path,
         save,
         save_path,
         meta: args.meta,
         bk: Props {
+            colors: Colors::new(fg, bg),
             chapter,
             byte,
             width: args.width,
