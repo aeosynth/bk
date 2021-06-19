@@ -363,22 +363,18 @@ fn init() -> Result<State, Box<dyn std::error::Error>> {
     // XXX oh god what
     let fg = args
         .fg
-        .and_then(|s| {
-            Some(Rgb {
-                r: u8::from_str_radix(&s[0..2], 16).unwrap(),
-                g: u8::from_str_radix(&s[2..4], 16).unwrap(),
-                b: u8::from_str_radix(&s[4..6], 16).unwrap(),
-            })
+        .map(|s| Rgb {
+            r: u8::from_str_radix(&s[0..2], 16).unwrap(),
+            g: u8::from_str_radix(&s[2..4], 16).unwrap(),
+            b: u8::from_str_radix(&s[4..6], 16).unwrap(),
         })
         .unwrap_or(style::Color::Reset);
     let bg = args
         .bg
-        .and_then(|s| {
-            Some(Rgb {
-                r: u8::from_str_radix(&s[0..2], 16).unwrap(),
-                g: u8::from_str_radix(&s[2..4], 16).unwrap(),
-                b: u8::from_str_radix(&s[4..6], 16).unwrap(),
-            })
+        .map(|s| Rgb {
+            r: u8::from_str_radix(&s[0..2], 16).unwrap(),
+            g: u8::from_str_radix(&s[2..4], 16).unwrap(),
+            b: u8::from_str_radix(&s[4..6], 16).unwrap(),
         })
         .unwrap_or(style::Color::Reset);
 
