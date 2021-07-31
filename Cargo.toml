@@ -12,7 +12,7 @@ repository = "https://github.com/aeosynth/bk"
 
 [dependencies]
 argh = "^0.1"
-crossterm = "^0.19"
+crossterm = "^0.20"
 ron = "^0.6"
 roxmltree = "^0.14"
 serde = "^1.0"
