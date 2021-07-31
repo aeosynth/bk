@@ -1,6 +1,6 @@
 use crossterm::{
     cursor,
-    event::{DisableMouseCapture, EnableMouseCapture, Event},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
     queue,
     style::{self, Color::Rgb, Colors, Print, SetColors},
     terminal,
@@ -153,7 +153,7 @@ impl Bk<'_> {
 
         bk
     }
-    fn run(&mut self) -> crossterm::Result<()> {
+    fn run(&mut self) -> io::Result<()> {
         let mut stdout = io::stdout();
         queue!(
             stdout,
@@ -180,11 +180,11 @@ impl Bk<'_> {
 
         render(self);
         loop {
-            match crossterm::event::read()? {
+            match event::read()? {
                 Event::Key(e) => self.view.on_key(self, e.code),
                 Event::Mouse(e) => {
                     // XXX idk seems lame
-                    if e.kind == crossterm::event::MouseEventKind::Moved {
+                    if e.kind == event::MouseEventKind::Moved {
                         continue;
                     }
                     self.view.on_mouse(self, e);

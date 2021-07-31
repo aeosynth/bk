@@ -3,7 +3,7 @@ use crossterm::{
         KeyCode::{self, *},
         MouseEvent, MouseEventKind,
     },
-    style::Attribute,
+    style::Attribute::*,
 };
 use std::cmp::{min, Ordering};
 use unicode_width::UnicodeWidthChar;
@@ -142,7 +142,7 @@ impl View for Toc {
     }
     fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
-            Esc | Tab | Left | Char('h') | Char('q') => {
+            Esc | Tab | Left | Char('h' | 'q') => {
                 bk.jump_reset();
                 bk.cursor = 0;
                 bk.view = &Page;
@@ -171,12 +171,7 @@ impl View for Toc {
             .iter()
             .map(|c| c.title.clone())
             .collect::<Vec<String>>();
-        arr[bk.cursor] = format!(
-            "{}{}{}",
-            Attribute::Reverse,
-            arr[bk.cursor],
-            Attribute::NoReverse
-        );
+        arr[bk.cursor] = format!("{}{}{}", Reverse, arr[bk.cursor], NoReverse);
         arr
     }
 }
@@ -306,11 +301,11 @@ impl View for Page {
             Char('d') => self.scroll_down(bk, bk.rows / 2),
             Char('u') => self.scroll_up(bk, bk.rows / 2),
             Up | Char('k') => self.scroll_up(bk, 3),
-            Left | PageUp | Char('b') | Char('h') => {
+            Left | PageUp | Char('b' | 'h') => {
                 self.scroll_up(bk, bk.rows);
             }
             Down | Char('j') => self.scroll_down(bk, 3),
-            Right | PageDown | Char('f') | Char('l') | Char(' ') => self.scroll_down(bk, bk.rows),
+            Right | PageDown | Char('f' | 'l' | ' ') => self.scroll_down(bk, bk.rows),
             Char('[') => self.prev_chapter(bk),
             Char(']') => self.next_chapter(bk),
             _ => (),
@@ -330,8 +325,8 @@ impl View for Page {
         if !bk.query.is_empty() {
             let len = bk.query.len();
             for (pos, _) in c.text[text_start..text_end].match_indices(&bk.query) {
-                search.push((text_start + pos, Attribute::Reverse));
-                search.push((text_start + pos + len, Attribute::NoReverse));
+                search.push((text_start + pos, Reverse));
+                search.push((text_start + pos + len, NoReverse));
             }
         }
         let mut search = search.into_iter().peekable();
@@ -344,8 +339,7 @@ impl View for Page {
 
             let map = c.attrs[start].2;
             let mut head = Vec::new();
-            let list = [Attribute::Bold, Attribute::Italic, Attribute::Underlined];
-            for attr in std::array::IntoIter::new(list) {
+            for attr in [Bold, Italic, Underlined] {
                 if map.has(attr) {
                     head.push((text_start, attr));
                 }
