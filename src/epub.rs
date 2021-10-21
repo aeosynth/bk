@@ -225,6 +225,19 @@ fn render(n: Node, c: &mut Chapter) {
             c.render_text(n);
             c.text.push('\n');
         }
+        "pre" => {
+            c.text.push('\n');
+            for child in n.children() {
+                match child.text() {
+                    Some(pretext) => {
+                        let indent = format!("\t{}", pretext);
+                        c.text.push_str(&indent);
+                    }
+                    None => {}
+                }
+            }
+            c.text.push('\n');
+        }
         _ => c.render_text(n),
     }
 }
