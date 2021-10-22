@@ -227,13 +227,20 @@ fn render(n: Node, c: &mut Chapter) {
         }
         "pre" => {
             c.text.push('\n');
-            for child in n.children() {
-                match child.text() {
-                    Some(pretext) => {
-                        let indent = format!("\t{}", pretext);
-                        c.text.push_str(&indent);
+            c.text.push_str("  ");
+            for child in n.descendants() {
+                if child.is_text() {
+                    match child.text() {
+                        Some(text) => {
+                            for char in text.chars() {
+                                c.text.push(char);
+                                if char == '\n' {
+                                    c.text.push_str("  ");
+                                }
+                            }
+                        }
+                        None => {}
                     }
-                    None => {}
                 }
             }
             c.text.push('\n');
