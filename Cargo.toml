@@ -2,7 +2,7 @@
 name = "bk"
 version = "0.5.3"
 authors = ["James Campos <james.r.campos@gmail.com>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 description = "Terminal Epub reader"
 keywords = ["ebook", "epub"]
@@ -12,8 +12,8 @@ repository = "https://github.com/aeosynth/bk"
 
 [dependencies]
 argh = "^0.1"
-crossterm = "^0.20"
-ron = "^0.6"
+crossterm = "^0.22"
+ron = "^0.7"
 roxmltree = "^0.14"
 serde = "^1.0"
 unicode-width = "^0.1"
