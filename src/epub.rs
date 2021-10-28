@@ -225,6 +225,15 @@ fn render(n: Node, c: &mut Chapter) {
             c.render_text(n);
             c.text.push('\n');
         }
+        "pre" => {
+            c.text.push_str("\n  ");
+            n
+                .descendants()
+                .filter(Node::is_text)
+                .map(|n| n.text().unwrap().replace('\n', "\n  "))
+                .for_each(|s| c.text.push_str(&s));
+            c.text.push('\n');
+        }
         _ => c.render_text(n),
     }
 }
