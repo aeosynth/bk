@@ -419,6 +419,7 @@ fn main() {
         .insert(state.path.clone(), (bk.chapter, byte));
     state.save.last = state.path;
     let serialized = ron::to_string(&state.save).unwrap();
+    fs::create_dir_all(state.save_path.split_at(state.save_path.len() - 2).0).ok();
     fs::write(state.save_path, serialized).unwrap_or_else(|e| {
         println!("error saving state: {}", e);
         exit(1);
