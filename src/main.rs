@@ -236,10 +236,6 @@ impl Bk<'_> {
             Err(n) => n - 1,
         }
     }
-    fn jump_reset(&mut self) { // Dead code 
-        let &to = self.mark.get(&'\'').unwrap();
-        self.jump(to);
-    }
     fn jump_forward(&mut self) {
         if self.stack_pointer + 1 < self.return_stack.len() {
             self.stack_pointer += 1;
