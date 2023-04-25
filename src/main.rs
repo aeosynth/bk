@@ -155,7 +155,7 @@ impl Bk<'_> {
 
         bk.jump_byte(args.chapter, args.byte);
         bk.mark('\'');
-
+        bk.save_jump();
         bk
     }
     fn run(&mut self) -> io::Result<()> {
