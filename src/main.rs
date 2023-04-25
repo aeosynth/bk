@@ -236,7 +236,7 @@ impl Bk<'_> {
             Err(n) => n - 1,
         }
     }
-    fn jump_reset(&mut self) {
+    fn jump_reset(&mut self) { // Dead code 
         let &to = self.mark.get(&'\'').unwrap();
         self.jump(to);
     }
@@ -259,8 +259,12 @@ impl Bk<'_> {
     }
     fn save_jump(&mut self) {
         self.return_stack.truncate(self.stack_pointer);
-        self.stack_pointer += 1;
-        self.return_stack.push((self.chapter, self.line));
+        let bookmark = (self.chapter, self.line);
+        // if the stack top is different from 
+        if self.return_stack.is_empty() || self.return_stack[self.stack_pointer - 1] != bookmark {
+            self.stack_pointer += 1;
+            self.return_stack.push(bookmark);
+        }
     }
     fn mark(&mut self, c: char) {
         self.mark.insert(c, (self.chapter, self.line));
