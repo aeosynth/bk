@@ -100,7 +100,8 @@ PageDown Right Space f l  Page Down
                        N  Repeat search backward
                       mx  Set mark x
                       'x  Jump to mark x
-               Backspace  Return from clicked link. 
+               Backspace  Undo one jump back. 
+                   Enter  Redo one jump.
                    "#;
 
         text.lines().map(String::from).collect()
@@ -251,9 +252,10 @@ impl Page {
         }
     }
     fn undo_click(&self, bk: &mut Bk){
-        if !bk.return_stack.is_empty(){
-            bk.jump_back();
-        }
+        bk.jump_back();
+    }
+    fn redo_click(&self, bk: &mut Bk){
+        bk.jump_forward();
     }
     fn start_search(&self, bk: &mut Bk, dir: Direction) {
         bk.mark('\'');
@@ -316,6 +318,7 @@ impl View for Page {
             Char('[') => self.prev_chapter(bk),
             Char(']') => self.next_chapter(bk),
             Backspace => self.undo_click(bk),
+            Enter     => self.redo_click(bk),
             _ => (),
         }
     }

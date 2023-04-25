@@ -95,7 +95,9 @@ pub struct Bk<'a> {
     line: usize,
     mark: HashMap<char, (usize, usize)>,
     links: HashMap<String, (usize, usize)>,
+    //Link 
     return_stack: Vec<(usize, usize)>, 
+    stack_pointer: usize,  
     // layout
     colors: Colors,
     cols: u16,
@@ -139,6 +141,7 @@ impl Bk<'_> {
             mark: HashMap::new(),
             links: epub.links,
             return_stack: Vec::new(), 
+            stack_pointer: 0,
             colors: args.colors,
             cols,
             rows: rows as usize,
@@ -234,16 +237,26 @@ impl Bk<'_> {
         }
     }
     fn jump_reset(&mut self) {
-        let &(c, l) = self.mark.get(&'\'').unwrap();
-        self.chapter = c;
-        self.line = l;
+        let &to = self.mark.get(&'\'').unwrap();
+        self.jump(to);
+    }
+    fn jump_forward(&mut self) {
+        if self.stack_pointer + 1 < self.return_stack.len() {
+            self.stack_pointer += 1;
+            let to = self.return_stack.get(self.stack_pointer).expect("Error: Stack pointer moving forward"); 
+            self.jump(*to);
+        }
     }
     fn jump_back(&mut self) {
-        let (c, l) = self.return_stack.pop().expect("Call jump_back only with elements inside");
-        self.chapter = c;
-        self.line = l; 
+        if self.stack_pointer > 0 {
+            self.stack_pointer -= 1;
+            let to = self.return_stack.get(self.stack_pointer).expect("Error: Stack Pointer moving backward");
+            self.jump(*to);
+        }
     }
     fn save_jump(&mut self) {
+        self.return_stack.truncate(self.stack_pointer);
+        self.stack_pointer += 1;
         self.return_stack.push((self.chapter, self.line));
     }
     fn mark(&mut self, c: char) {
