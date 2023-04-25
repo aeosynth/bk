@@ -249,6 +249,9 @@ impl Bk<'_> {
     }
     fn jump_back(&mut self) {
         if self.stack_pointer > 0 {
+            if self.stack_pointer == self.return_stack.len(){
+                self.save_jump();
+            }
             self.stack_pointer -= 1;
             let to = self.return_stack.get(self.stack_pointer).expect("Error: Stack Pointer moving backward");
             self.jump(*to);
