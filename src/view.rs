@@ -100,6 +100,7 @@ PageDown Right Space f l  Page Down
                        N  Repeat search backward
                       mx  Set mark x
                       'x  Jump to mark x
+               Backspace  Return from clicked link. 
                    "#;
 
         text.lines().map(String::from).collect()
@@ -244,8 +245,14 @@ impl Page {
         if let Ok(i) = r {
             let url = &c.links[i].2;
             let &(c, byte) = bk.links.get(url).unwrap();
+            bk.save_jump();
             bk.mark('\'');
             bk.jump_byte(c, byte);
+        }
+    }
+    fn undo_click(&self, bk: &mut Bk){
+        if !bk.return_stack.is_empty(){
+            bk.jump_back();
         }
     }
     fn start_search(&self, bk: &mut Bk, dir: Direction) {
@@ -308,6 +315,7 @@ impl View for Page {
             Right | PageDown | Char('f' | 'l' | ' ') => self.scroll_down(bk, bk.rows),
             Char('[') => self.prev_chapter(bk),
             Char(']') => self.next_chapter(bk),
+            Backspace => self.undo_click(bk),
             _ => (),
         }
     }

@@ -95,6 +95,7 @@ pub struct Bk<'a> {
     line: usize,
     mark: HashMap<char, (usize, usize)>,
     links: HashMap<String, (usize, usize)>,
+    return_stack: Vec<(usize, usize)>, 
     // layout
     colors: Colors,
     cols: u16,
@@ -137,6 +138,7 @@ impl Bk<'_> {
             line: 0,
             mark: HashMap::new(),
             links: epub.links,
+            return_stack: Vec::with_capacity(5), 
             colors: args.colors,
             cols,
             rows: rows as usize,
@@ -235,6 +237,14 @@ impl Bk<'_> {
         let &(c, l) = self.mark.get(&'\'').unwrap();
         self.chapter = c;
         self.line = l;
+    }
+    fn jump_back(&mut self) {
+        let (c, l) = self.return_stack.pop().expect("Call jump_back only with elements inside");
+        self.chapter = c;
+        self.line = l; 
+    }
+    fn save_jump(&mut self) {
+        self.return_stack.push((self.chapter, self.line));
     }
     fn mark(&mut self, c: char) {
         self.mark.insert(c, (self.chapter, self.line));
