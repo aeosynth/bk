@@ -138,7 +138,7 @@ impl Bk<'_> {
             line: 0,
             mark: HashMap::new(),
             links: epub.links,
-            return_stack: Vec::with_capacity(5), 
+            return_stack: Vec::new(), 
             colors: args.colors,
             cols,
             rows: rows as usize,
