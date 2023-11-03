@@ -1,6 +1,6 @@
 [package]
 name = "bk"
-version = "0.5.3"
+version = "0.6.0"
 authors = ["James Campos <james.r.campos@gmail.com>"]
 edition = "2021"
 license = "MIT"
