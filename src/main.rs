@@ -95,6 +95,9 @@ pub struct Bk<'a> {
     line: usize,
     mark: HashMap<char, (usize, usize)>,
     links: HashMap<String, (usize, usize)>,
+    //Link 
+    return_stack: Vec<(usize, usize)>, 
+    stack_pointer: usize,  
     // layout
     colors: Colors,
     cols: u16,
@@ -137,6 +140,8 @@ impl Bk<'_> {
             line: 0,
             mark: HashMap::new(),
             links: epub.links,
+            return_stack: Vec::new(), 
+            stack_pointer: 0,
             colors: args.colors,
             cols,
             rows: rows as usize,
@@ -150,7 +155,7 @@ impl Bk<'_> {
 
         bk.jump_byte(args.chapter, args.byte);
         bk.mark('\'');
-
+        bk.save_jump();
         bk
     }
     fn run(&mut self) -> io::Result<()> {
@@ -231,10 +236,31 @@ impl Bk<'_> {
             Err(n) => n - 1,
         }
     }
-    fn jump_reset(&mut self) {
-        let &(c, l) = self.mark.get(&'\'').unwrap();
-        self.chapter = c;
-        self.line = l;
+    fn jump_forward(&mut self) {
+        if self.stack_pointer + 1 < self.return_stack.len() {
+            self.stack_pointer += 1;
+            let to = self.return_stack.get(self.stack_pointer).expect("Error: Stack pointer moving forward"); 
+            self.jump(*to);
+        }
+    }
+    fn jump_back(&mut self) {
+        if self.stack_pointer > 0 {
+            if self.stack_pointer == self.return_stack.len(){
+                self.save_jump();
+            }
+            self.stack_pointer -= 1;
+            let to = self.return_stack.get(self.stack_pointer).expect("Error: Stack Pointer moving backward");
+            self.jump(*to);
+        }
+    }
+    fn save_jump(&mut self) {
+        self.return_stack.truncate(self.stack_pointer);
+        let bookmark = (self.chapter, self.line);
+        // if the stack top is different from 
+        if self.return_stack.is_empty() || self.return_stack[self.stack_pointer - 1] != bookmark {
+            self.stack_pointer += 1;
+            self.return_stack.push(bookmark);
+        }
     }
     fn mark(&mut self, c: char) {
         self.mark.insert(c, (self.chapter, self.line));

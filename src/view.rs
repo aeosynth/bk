@@ -100,6 +100,8 @@ PageDown Right Space f l  Page Down
                        N  Repeat search backward
                       mx  Set mark x
                       'x  Jump to mark x
+               Backspace  Undo one jump back. 
+                   Enter  Redo one jump.
                    "#;
 
         text.lines().map(String::from).collect()
@@ -143,7 +145,7 @@ impl View for Toc {
     fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             Esc | Tab | Left | Char('h' | 'q') => {
-                bk.jump_reset();
+                bk.jump_back();
                 bk.cursor = 0;
                 bk.view = &Page;
             }
@@ -245,11 +247,19 @@ impl Page {
             let url = &c.links[i].2;
             let &(c, byte) = bk.links.get(url).unwrap();
             bk.mark('\'');
+            bk.save_jump();
             bk.jump_byte(c, byte);
         }
     }
+    fn undo_click(&self, bk: &mut Bk){
+        bk.jump_back();
+    }
+    fn redo_click(&self, bk: &mut Bk){
+        bk.jump_forward();
+    }
     fn start_search(&self, bk: &mut Bk, dir: Direction) {
         bk.mark('\'');
+        bk.save_jump();
         bk.query.clear();
         bk.dir = dir;
         bk.view = &Search;
@@ -269,6 +279,7 @@ impl View for Page {
             Esc | Char('q') => bk.quit = true,
             Tab => {
                 bk.mark('\'');
+                bk.save_jump();
                 Toc.cursor(bk);
                 bk.view = &Toc;
             }
@@ -292,10 +303,12 @@ impl View for Page {
             }
             End | Char('G') => {
                 bk.mark('\'');
+                bk.save_jump();
                 bk.line = bk.chapters[bk.chapter].lines.len().saturating_sub(bk.rows);
             }
             Home | Char('g') => {
                 bk.mark('\'');
+                bk.save_jump();
                 bk.line = 0;
             }
             Char('d') => self.scroll_down(bk, bk.rows / 2),
@@ -308,6 +321,8 @@ impl View for Page {
             Right | PageDown | Char('f' | 'l' | ' ') => self.scroll_down(bk, bk.rows),
             Char('[') => self.prev_chapter(bk),
             Char(']') => self.next_chapter(bk),
+            Backspace => self.undo_click(bk),
+            Enter     => self.redo_click(bk),
             _ => (),
         }
     }
@@ -397,7 +412,7 @@ impl View for Search {
     fn on_key(&self, bk: &mut Bk, kc: KeyCode) {
         match kc {
             Esc => {
-                bk.jump_reset();
+                bk.jump_back();
                 bk.query.clear();
                 bk.view = &Page;
             }
@@ -406,7 +421,7 @@ impl View for Search {
             }
             Backspace => {
                 bk.query.pop();
-                bk.jump_reset();
+                bk.jump_back();
                 bk.search(SearchArgs {
                     dir: bk.dir.clone(),
                     skip: false,
@@ -419,7 +434,7 @@ impl View for Search {
                     skip: false,
                 };
                 if !bk.search(args) {
-                    bk.jump_reset();
+                    bk.jump_back();
                 }
             }
             _ => (),
